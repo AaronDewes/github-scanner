@@ -33,38 +33,43 @@ export default function Repositories() {
 
   return (
     <div>
-      <h2>Repositories</h2>
+      <h2>📁 Repositories</h2>
       
       <div className="card">
-        <div style={{ marginBottom: '20px' }}>
-          <label>Filter by status: </label>
-          <select 
-            value={filter} 
-            onChange={(e) => {
-              setFilter(e.target.value)
-              setPage(1)
-            }}
-            style={{ marginLeft: '10px' }}
-          >
-            <option value="">All</option>
-            <option value="pending">Pending</option>
-            <option value="scanning">Scanning</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-          </select>
+        <div className="filter-bar">
+          <div>
+            <label>Status</label>
+            <select 
+              value={filter} 
+              onChange={(e) => {
+                setFilter(e.target.value)
+                setPage(1)
+              }}
+            >
+              <option value="">All Statuses</option>
+              <option value="pending">⏳ Pending</option>
+              <option value="scanning">🔄 Scanning</option>
+              <option value="completed">✅ Completed</option>
+              <option value="failed">❌ Failed</option>
+            </select>
+          </div>
         </div>
 
         {loading && <div className="loading">Loading repositories...</div>}
-        {error && <div className="error">Error: {error}</div>}
+        {error && <div className="error">{error}</div>}
         
-        {!loading && !error && (
+        {!loading && !error && repositories.length === 0 && (
+          <div className="empty-state">No repositories found. Try scanning some repositories!</div>
+        )}
+        
+        {!loading && !error && repositories.length > 0 && (
           <>
             <table className="table">
               <thead>
                 <tr>
                   <th>Repository</th>
-                  <th>Status</th>
-                  <th>Last Scanned</th>
+                  <th style={{ width: '120px' }}>Status</th>
+                  <th style={{ width: '180px' }}>Last Scanned</th>
                   <th>Error</th>
                 </tr>
               </thead>
@@ -72,8 +77,19 @@ export default function Repositories() {
                 {repositories.map((repo) => (
                   <tr key={repo.id}>
                     <td>
-                      <a href={repo.url} target="_blank" rel="noopener noreferrer">
-                        {repo.owner}/{repo.name}
+                      <a 
+                        href={repo.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{ 
+                          color: 'var(--primary)', 
+                          textDecoration: 'none',
+                          fontWeight: 500
+                        }}
+                      >
+                        <strong style={{ color: 'var(--gray-900)' }}>{repo.owner}</strong>
+                        <span style={{ color: 'var(--gray-400)' }}>/</span>
+                        {repo.name}
                       </a>
                     </td>
                     <td>
@@ -81,13 +97,13 @@ export default function Repositories() {
                         {repo.scan_status}
                       </span>
                     </td>
-                    <td>
+                    <td style={{ color: 'var(--gray-600)', fontSize: '0.875rem' }}>
                       {repo.last_scanned_at 
                         ? new Date(repo.last_scanned_at).toLocaleString()
-                        : 'Never'}
+                        : '—'}
                     </td>
-                    <td style={{ fontSize: '12px', color: '#d73a49' }}>
-                      {repo.scan_error}
+                    <td style={{ fontSize: '0.8rem', color: 'var(--danger)' }}>
+                      {repo.scan_error || '—'}
                     </td>
                   </tr>
                 ))}
@@ -99,16 +115,16 @@ export default function Repositories() {
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
               >
-                Previous
+                ← Previous
               </button>
               <span>
-                Page {page} of {totalPages} ({total} total)
+                Page {page} of {totalPages} ({total.toLocaleString()} total)
               </span>
               <button 
                 onClick={() => setPage(p => p + 1)}
                 disabled={page >= totalPages}
               >
-                Next
+                Next →
               </button>
             </div>
           </>

@@ -26,100 +26,94 @@ export default function ScanQueue() {
     }
   }
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'queued': return '#0969da'
-      case 'processing': return '#fb8500'
-      case 'completed': return '#1a7f37'
-      case 'failed': return '#cf222e'
-      default: return '#6e7781'
-    }
-  }
-
   return (
     <div>
-      <h2>Scan Queue</h2>
+      <h2>📋 Scan Queue</h2>
       
       <div className="card">
-        <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="filter-bar" style={{ justifyContent: 'space-between' }}>
           <div>
-            <label>Filter by status: </label>
+            <label>Status</label>
             <select 
               value={filter} 
               onChange={(e) => setFilter(e.target.value)}
-              style={{ marginLeft: '10px' }}
             >
-              <option value="">All</option>
-              <option value="queued">Queued</option>
-              <option value="processing">Processing</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
+              <option value="">All Statuses</option>
+              <option value="queued">⏳ Queued</option>
+              <option value="processing">🔄 Processing</option>
+              <option value="completed">✅ Completed</option>
+              <option value="failed">❌ Failed</option>
             </select>
           </div>
-          <button className="button" onClick={loadQueue}>
-            Refresh
+          <button className="button secondary" onClick={loadQueue} style={{ alignSelf: 'flex-end' }}>
+            🔄 Refresh
           </button>
         </div>
 
         {loading && <div className="loading">Loading queue...</div>}
-        {error && <div className="error">Error: {error}</div>}
+        {error && <div className="error">{error}</div>}
         
-        {!loading && !error && (
-          <>
-            {queue.length === 0 ? (
-              <p style={{ textAlign: 'center', padding: '40px', color: '#6e7781' }}>
-                No items in queue
-              </p>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Repository ID</th>
-                    <th>Status</th>
-                    <th>Priority</th>
-                    <th>Attempts</th>
-                    <th>Queued At</th>
-                    <th>Started At</th>
-                    <th>Job Name</th>
-                    <th>Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {queue.map((item) => (
-                    <tr key={item.id}>
-                      <td>{item.repository_id}</td>
-                      <td>
-                        <span 
-                          className="badge" 
-                          style={{ backgroundColor: getStatusColor(item.status) }}
-                        >
-                          {item.status}
-                        </span>
-                      </td>
-                      <td>{item.priority}</td>
-                      <td>
-                        {item.attempts}/{item.max_attempts}
-                      </td>
-                      <td>
-                        {new Date(item.queued_at).toLocaleString()}
-                      </td>
-                      <td>
-                        {item.started_at 
-                          ? new Date(item.started_at).toLocaleString()
-                          : '-'}
-                      </td>
-                      <td style={{ fontSize: '11px' }}>
-                        {item.job_name || '-'}
-                      </td>
-                      <td style={{ fontSize: '12px', color: '#d73a49', maxWidth: '200px' }}>
-                        {item.error_message}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </>
+        {!loading && !error && queue.length === 0 && (
+          <div className="empty-state">No items in queue</div>
+        )}
+        
+        {!loading && !error && queue.length > 0 && (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Repository ID</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Attempts</th>
+                <th>Queued At</th>
+                <th>Started At</th>
+                <th>Job Name</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {queue.map((item) => (
+                <tr key={item.id}>
+                  <td style={{ fontWeight: 600 }}>#{item.repository_id}</td>
+                  <td>
+                    <span className={`badge ${item.status}`}>
+                      {item.status}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ 
+                      background: item.priority > 0 ? 'var(--warning-light)' : 'var(--gray-100)',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontWeight: 500,
+                      fontSize: '0.85rem'
+                    }}>
+                      {item.priority}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ color: item.attempts >= item.max_attempts ? 'var(--danger)' : 'var(--gray-600)' }}>
+                      {item.attempts}/{item.max_attempts}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: '0.85rem', color: 'var(--gray-600)' }}>
+                    {new Date(item.queued_at).toLocaleString()}
+                  </td>
+                  <td style={{ fontSize: '0.85rem', color: 'var(--gray-600)' }}>
+                    {item.started_at 
+                      ? new Date(item.started_at).toLocaleString()
+                      : '—'}
+                  </td>
+                  <td style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--gray-500)' }}>
+                    {item.job_name || '—'}
+                  </td>
+                  <td style={{ fontSize: '0.8rem', color: 'var(--danger)', maxWidth: '200px' }}>
+                    {item.error_message || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

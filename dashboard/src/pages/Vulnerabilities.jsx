@@ -101,12 +101,12 @@ export default function Vulnerabilities() {
 
   return (
     <div>
-      <h2>Vulnerabilities</h2>
+      <h2>🛡️ Vulnerabilities</h2>
       
       <div className="card">
-        <div style={{ display: 'flex', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <div className="filter-bar">
           <div>
-            <label>Organization: </label>
+            <label>Organization</label>
             <select 
               value={filters.org} 
               onChange={(e) => {
@@ -121,7 +121,7 @@ export default function Vulnerabilities() {
             </select>
           </div>
           <div>
-            <label>Repository: </label>
+            <label>Repository</label>
             <select 
               value={filters.repo} 
               onChange={(e) => {
@@ -138,7 +138,7 @@ export default function Vulnerabilities() {
             </select>
           </div>
           <div>
-            <label>Severity: </label>
+            <label>Severity</label>
             <select 
               value={filters.severity} 
               onChange={(e) => {
@@ -146,16 +146,16 @@ export default function Vulnerabilities() {
                 setPage(1)
               }}
             >
-              <option value="">All</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-              <option value="info">Info</option>
+              <option value="">All Severities</option>
+              <option value="critical">🔴 Critical</option>
+              <option value="high">🟠 High</option>
+              <option value="medium">🟡 Medium</option>
+              <option value="low">🟢 Low</option>
+              <option value="info">🔵 Info</option>
             </select>
           </div>
           <div>
-            <label>Status: </label>
+            <label>Status</label>
             <select 
               value={filters.status} 
               onChange={(e) => {
@@ -163,31 +163,35 @@ export default function Vulnerabilities() {
                 setPage(1)
               }}
             >
-              <option value="">All</option>
-              <option value="open">Open</option>
-              <option value="confirmed">Confirmed</option>
-              <option value="false_positive">False Positive</option>
-              <option value="fixed">Fixed</option>
-              <option value="ignored">Ignored</option>
+              <option value="">All Statuses</option>
+              <option value="open">⚠️ Open</option>
+              <option value="confirmed">✓ Confirmed</option>
+              <option value="false_positive">✗ False Positive</option>
+              <option value="fixed">✅ Fixed</option>
+              <option value="ignored">🚫 Ignored</option>
             </select>
           </div>
         </div>
 
         {loading && <div className="loading">Loading vulnerabilities...</div>}
-        {error && <div className="error">Error: {error}</div>}
+        {error && <div className="error">{error}</div>}
         
-        {!loading && !error && (
+        {!loading && !error && vulnerabilities.length === 0 && (
+          <div className="empty-state">No vulnerabilities found matching your filters.</div>
+        )}
+        
+        {!loading && !error && vulnerabilities.length > 0 && (
           <>
             <table className="table">
               <thead>
                 <tr>
-                  <th>Severity</th>
+                  <th style={{ width: '100px' }}>Severity</th>
                   <th>Repository</th>
                   <th>Title</th>
                   <th>File</th>
-                  <th>Status</th>
-                  <th>Detected</th>
-                  <th>Actions</th>
+                  <th style={{ width: '120px' }}>Status</th>
+                  <th style={{ width: '100px' }}>Detected</th>
+                  <th style={{ width: '100px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -246,7 +250,7 @@ export default function Vulnerabilities() {
                 onClick={() => setPage(p => p + 1)}
                 disabled={page >= totalPages}
               >
-                Next
+                Next →
               </button>
             </div>
           </>
@@ -259,23 +263,51 @@ export default function Vulnerabilities() {
             <button className="modal-close" onClick={() => setSelectedVuln(null)}>
               ×
             </button>
-            <h2>Vulnerability Analysis</h2>
+            <h2>🔍 Vulnerability Analysis</h2>
             
-            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f6f8fa', borderRadius: '6px' }}>
-              <h3>{selectedVuln.title}</h3>
-              <p><strong>Type:</strong> {selectedVuln.vulnerability_type}</p>
-              <p><strong>File:</strong> {selectedVuln.file_path}</p>
-              {selectedVuln.line_number && <p><strong>Line:</strong> {selectedVuln.line_number}</p>}
+            <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: 'var(--gray-50)', borderRadius: 'var(--radius)', border: '1px solid var(--gray-200)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <span className={`badge ${selectedVuln.severity}`}>{selectedVuln.severity}</span>
+                <h3 style={{ margin: 0, fontSize: '1rem' }}>{selectedVuln.title}</h3>
+              </div>
+              
+              <div style={{ display: 'grid', gap: '10px', fontSize: '0.9rem' }}>
+                <p style={{ margin: 0 }}>
+                  <strong style={{ color: 'var(--gray-600)' }}>Type:</strong>{' '}
+                  <code style={{ background: 'var(--gray-200)', padding: '2px 6px', borderRadius: '4px' }}>{selectedVuln.vulnerability_type}</code>
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong style={{ color: 'var(--gray-600)' }}>File:</strong>{' '}
+                  <code style={{ background: 'var(--gray-200)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.85rem' }}>{selectedVuln.file_path}</code>
+                </p>
+                {selectedVuln.line_number && (
+                  <p style={{ margin: 0 }}>
+                    <strong style={{ color: 'var(--gray-600)' }}>Line:</strong> {selectedVuln.line_number}
+                  </p>
+                )}
+              </div>
+              
               {selectedVuln.description && (
-                <p><strong>Description:</strong> {selectedVuln.description}</p>
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--gray-200)' }}>
+                  <strong style={{ color: 'var(--gray-600)', fontSize: '0.85rem' }}>Description:</strong>
+                  <p style={{ margin: '8px 0 0', color: 'var(--gray-700)', lineHeight: 1.6 }}>{selectedVuln.description}</p>
+                </div>
               )}
+              
               {selectedVuln.code_snippet && (
-                <pre style={{ background: '#fff', padding: '10px', borderRadius: '4px', overflow: 'auto' }}>
-                  <code>{selectedVuln.code_snippet}</code>
-                </pre>
+                <div style={{ marginTop: '16px' }}>
+                  <strong style={{ color: 'var(--gray-600)', fontSize: '0.85rem', display: 'block', marginBottom: '8px' }}>Code Snippet:</strong>
+                  <pre style={{ margin: 0 }}>
+                    <code>{selectedVuln.code_snippet}</code>
+                  </pre>
+                </div>
               )}
+              
               {selectedVuln.recommendation && (
-                <p><strong>Recommendation:</strong> {selectedVuln.recommendation}</p>
+                <div style={{ marginTop: '16px', padding: '12px 16px', background: 'var(--info-light)', borderRadius: 'var(--radius)', border: '1px solid #93c5fd' }}>
+                  <strong style={{ color: '#1d4ed8', fontSize: '0.85rem' }}>💡 Recommendation:</strong>
+                  <p style={{ margin: '6px 0 0', color: '#1e40af', fontSize: '0.9rem', lineHeight: 1.6 }}>{selectedVuln.recommendation}</p>
+                </div>
               )}
             </div>
 
@@ -287,11 +319,11 @@ export default function Vulnerabilities() {
                   onChange={(e) => setAnalysisForm({ ...analysisForm, status: e.target.value })}
                   required
                 >
-                  <option value="open">Open</option>
-                  <option value="confirmed">Confirmed</option>
-                  <option value="false_positive">False Positive</option>
-                  <option value="fixed">Fixed</option>
-                  <option value="ignored">Ignored</option>
+                  <option value="open">⚠️ Open</option>
+                  <option value="confirmed">✓ Confirmed</option>
+                  <option value="false_positive">✗ False Positive</option>
+                  <option value="fixed">✅ Fixed</option>
+                  <option value="ignored">🚫 Ignored</option>
                 </select>
               </div>
 
@@ -312,20 +344,20 @@ export default function Vulnerabilities() {
                   value={analysisForm.analyzed_by}
                   onChange={(e) => setAnalysisForm({ ...analysisForm, analyzed_by: e.target.value })}
                   placeholder="Your name"
+                  style={{ marginBottom: 0 }}
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <div style={{ display: 'flex', gap: '12px', marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--gray-200)' }}>
                 <button type="submit" className="button">
-                  Update Analysis
+                  💾 Update Analysis
                 </button>
                 <button 
                   type="button" 
-                  className="button" 
-                  style={{ backgroundColor: '#6c757d' }}
+                  className="button secondary"
                   onClick={handleMarkFileSafe}
                 >
-                  Mark File Safe (Global)
+                  🛡️ Mark File Safe (Global)
                 </button>
               </div>
             </form>
