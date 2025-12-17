@@ -227,14 +227,6 @@ class GitHubScanner:
                 print(f"No workflows directory found at {workflows_dir}")
                 return []
             
-            # Remove duplicates to speed up analysis
-            print("Removing duplicate workflows...")
-            subprocess.run(
-                ['fdupes', '-n', '-r', '-N', '-d', workflows_dir],
-                capture_output=True,
-                timeout=300
-            )
-            
             cmd = [
                 'octoscan',
                 'scan',
