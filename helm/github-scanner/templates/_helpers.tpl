@@ -106,7 +106,7 @@ Image tag
 Full image name for a component
 */}}
 {{- define "github-scanner.image" -}}
-{{- $registry := .Values.global.registry }}
+{{- $registry := .root.Values.global.registry }}
 {{- $repository := .component.image.repository }}
 {{- $tag := default (include "github-scanner.imageTag" .root) .component.image.tag }}
 {{- printf "%s/%s:%s" $registry $repository $tag }}
