@@ -198,9 +198,15 @@ class GitHubAPIClient:
 class Scheduler:
     """Main scheduler class."""
     
-    def __init__(self, database_url: str, github_token: Optional[str] = None):
+    def __init__(self, database_url: str, github_token: Optional[str] = None, debug_mode: bool = False):
         self.database_url = database_url
         self.github_client = GitHubAPIClient(token=github_token)
+        self.debug_mode = debug_mode
+        
+        if debug_mode:
+            print("=" * 60)
+            print("DEBUG MODE ENABLED - No database interactions")
+            print("=" * 60)
     
     def _get_db_connection(self):
         """Get database connection."""
@@ -223,22 +229,40 @@ class Scheduler:
             name = repo_data.get('name', '')
             url = repo_data.get('html_url', '')
             archived = repo_data.get('archived', False)
+            stars = repo_data.get('stargazers_count', 0)
             
             if not owner or not name or not url:
                 return False
             
             # Skip archived repositories
             if archived:
-                print(f"Skipping {owner}/{name} - repository is archived")
+                if self.debug_mode:
+                    print(f"[SKIP] {owner}/{name} - archived")
+                else:
+                    print(f"Skipping {owner}/{name} - repository is archived")
                 return False
             
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                # Check if repo has GitHub Actions runs
-                has_actions = self.github_client.has_github_actions(owner, name)
-                
-                if not has_actions:
+            # Check if repo has GitHub Actions runs
+            has_actions = self.github_client.has_github_actions(owner, name)
+            
+            if not has_actions:
+                if self.debug_mode:
+                    print(f"[SKIP] {owner}/{name} - no actions runs")
+                else:
                     print(f"Skipping {owner}/{name} - no GitHub Actions runs")
-                    return False
+                return False
+            
+            # Debug mode: just print and return
+            if self.debug_mode:
+                print(f"[FOUND] {owner}/{name}")
+                print(f"        URL: {url}")
+                print(f"        Stars: {stars}")
+                print(f"        Priority: {priority}")
+                print(f"        Has Actions: Yes")
+                print()
+                return True
+            
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 
                 # Insert or update repository
                 cursor.execute(
@@ -303,7 +327,12 @@ class Scheduler:
         
         print(f"Found {len(repos)} repositories")
         
-        conn = self._get_db_connection()
+        if self.debug_mode:
+            print(f"\n{'=' * 60}")
+            print("Processing repositories...")
+            print(f"{'=' * 60}\n")
+        
+        conn = None if self.debug_mode else self._get_db_connection()
         
         try:
             queued_count = 0
@@ -340,11 +369,14 @@ class Scheduler:
             print(f"Total queued: {queued_count + expanded_count}")
         
         finally:
-            conn.close()
+            if conn:
+                conn.close()
     
     def run(self, interval: int = 86400):
         """Run scheduler in a loop."""
         print("Starting GitHub Scanner Scheduler")
+        if self.debug_mode:
+            print("Running in DEBUG mode - no database operations")
         print(f"Scan interval: {interval} seconds ({interval / 3600:.1f} hours)")
         
         while True:
@@ -360,6 +392,11 @@ class Scheduler:
                 
                 duration = (datetime.now() - start_time).total_seconds()
                 print(f"Scheduling completed in {duration:.1f} seconds")
+                
+                # In debug mode, exit after one run
+                if self.debug_mode:
+                    print("\nDebug mode: exiting after one run")
+                    break
                 
                 # Wait for next interval
                 print(f"Waiting {interval} seconds until next scan...")
@@ -379,15 +416,17 @@ def main():
     database_url = os.getenv('DATABASE_URL')
     github_token = os.getenv('GITHUB_TOKEN')
     scan_interval = int(os.getenv('SCAN_INTERVAL', '86400'))
+    debug_mode = os.getenv('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
     
-    if not database_url:
+    if not debug_mode and not database_url:
         print("Error: DATABASE_URL environment variable is required", file=sys.stderr)
+        print("Hint: Set DEBUG_MODE=true to run without database", file=sys.stderr)
         sys.exit(1)
     
     if not github_token:
         print("Warning: GITHUB_TOKEN not set. Rate limits will be restrictive.")
     
-    scheduler = Scheduler(database_url, github_token)
+    scheduler = Scheduler(database_url, github_token, debug_mode=debug_mode)
     scheduler.run(interval=scan_interval)
 
 
