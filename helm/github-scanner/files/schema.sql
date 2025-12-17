@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     owner VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     organization VARCHAR(255),
+    default_branch VARCHAR(255) DEFAULT 'main',
     has_actions BOOLEAN DEFAULT FALSE,
     first_scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_scanned_at TIMESTAMP,

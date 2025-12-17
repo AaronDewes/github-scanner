@@ -264,14 +264,18 @@ class Scheduler:
             
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 
+                # Get default branch from repo data
+                default_branch = repo_data.get('default_branch', 'main')
+                
                 # Insert or update repository
                 cursor.execute(
-                    """INSERT INTO repositories (url, owner, name, has_actions)
-                       VALUES (%s, %s, %s, %s)
+                    """INSERT INTO repositories (url, owner, name, has_actions, default_branch)
+                       VALUES (%s, %s, %s, %s, %s)
                        ON CONFLICT (owner, name) DO UPDATE
-                       SET url = EXCLUDED.url, has_actions = EXCLUDED.has_actions
+                       SET url = EXCLUDED.url, has_actions = EXCLUDED.has_actions, 
+                           default_branch = EXCLUDED.default_branch
                        RETURNING id""",
-                    (url, owner, name, has_actions)
+                    (url, owner, name, has_actions, default_branch)
                 )
                 repo = cursor.fetchone()
                 repository_id = repo['id']

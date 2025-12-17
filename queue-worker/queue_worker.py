@@ -10,11 +10,126 @@ import os
 import sys
 import time
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
+import requests
+
+
+class GitHubRateLimiter:
+    """Handles GitHub API rate limit checking."""
+    
+    def __init__(self, token: Optional[str] = None, database_url: Optional[str] = None):
+        self.token = token
+        self.database_url = database_url
+        self.base_url = "https://api.github.com"
+        self.session = requests.Session()
+        
+        if token:
+            self.session.headers.update({
+                'Authorization': f'token {token}',
+                'Accept': 'application/vnd.github.v3+json'
+            })
+    
+    def check_rate_limit(self) -> dict:
+        """Check current GitHub API rate limit status."""
+        try:
+            response = self.session.get(f"{self.base_url}/rate_limit")
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"Error checking rate limit: {e}", file=sys.stderr)
+            return {}
+    
+    def store_rate_limit(self, rate_limit_info: dict):
+        """Store rate limit information in the database."""
+        if not self.database_url:
+            return
+        
+        try:
+            conn = psycopg2.connect(self.database_url)
+            cursor = conn.cursor()
+            
+            for api_type in ['core', 'search']:
+                if api_type in rate_limit_info.get('resources', {}):
+                    info = rate_limit_info['resources'][api_type]
+                    cursor.execute(
+                        """INSERT INTO rate_limits (api_type, limit_value, remaining, reset_at)
+                           VALUES (%s, %s, %s, to_timestamp(%s))""",
+                        (api_type, info.get('limit', 0), info.get('remaining', 0), info.get('reset', 0))
+                    )
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            print(f"Error storing rate limit: {e}", file=sys.stderr)
+    
+    def get_rate_limit_status(self) -> Tuple[int, int, int]:
+        """
+        Get current rate limit status.
+        
+        Returns:
+            Tuple of (remaining, limit, reset_timestamp)
+        """
+        rate_limit_info = self.check_rate_limit()
+        
+        if not rate_limit_info:
+            return 5000, 5000, 0  # Assume OK if can't check
+        
+        # Store the rate limit info
+        self.store_rate_limit(rate_limit_info)
+        
+        core = rate_limit_info.get('resources', {}).get('core', {})
+        remaining = core.get('remaining', 5000)
+        limit = core.get('limit', 5000)
+        reset_time = core.get('reset', 0)
+        
+        return remaining, limit, reset_time
+    
+    def calculate_safe_jobs(self, requests_per_job: int = 50) -> int:
+        """
+        Calculate how many jobs can safely run given current rate limits.
+        
+        Args:
+            requests_per_job: Estimated API requests per scan job
+            
+        Returns:
+            Number of jobs that can be safely started
+        """
+        remaining, limit, reset_time = self.get_rate_limit_status()
+        
+        # Keep a buffer of 500 requests
+        available = max(0, remaining - 500)
+        
+        safe_jobs = available // requests_per_job
+        
+        print(f"Rate limit: {remaining}/{limit} remaining, can safely run {safe_jobs} jobs")
+        
+        return safe_jobs
+    
+    def wait_if_needed(self, min_remaining: int = 500) -> bool:
+        """
+        Wait if rate limit is too low.
+        
+        Returns:
+            True if ready to proceed, False if should skip this cycle
+        """
+        remaining, limit, reset_time = self.get_rate_limit_status()
+        
+        if remaining < min_remaining:
+            wait_time = reset_time - time.time()
+            if wait_time > 0 and wait_time <= 900:  # Wait max 15 minutes
+                print(f"Rate limit low ({remaining} remaining). Waiting {int(wait_time)} seconds...")
+                time.sleep(wait_time + 5)
+                return True
+            elif wait_time > 900:
+                print(f"Rate limit low, reset in {int(wait_time)}s. Skipping this cycle.")
+                return False
+        
+        return True
 
 
 class KubernetesJobManager:
@@ -209,6 +324,11 @@ class QueueWorker:
             namespace=namespace,
             image=worker_image
         )
+        
+        self.rate_limiter = GitHubRateLimiter(
+            token=github_token,
+            database_url=database_url
+        )
     
     def _get_db_connection(self):
         """Get database connection."""
@@ -255,15 +375,28 @@ class QueueWorker:
     
     def process_queue(self):
         """Process pending scans in the queue."""
+        # Check GitHub API rate limits first
+        if not self.rate_limiter.wait_if_needed(min_remaining=500):
+            print("Rate limit too low, skipping this cycle")
+            return
+        
+        # Calculate how many jobs are safe given rate limits
+        rate_limit_jobs = self.rate_limiter.calculate_safe_jobs(requests_per_job=50)
+        
+        if rate_limit_jobs <= 0:
+            print("Rate limit does not allow new jobs, waiting...")
+            return
+        
         # Count currently running jobs
         running_jobs = self.job_manager.count_running_jobs()
         print(f"Currently running jobs: {running_jobs}/{self.max_concurrent_jobs}")
         
-        # Calculate how many new jobs we can start
+        # Calculate how many new jobs we can start (min of concurrent limit and rate limit)
         available_slots = self.max_concurrent_jobs - running_jobs
+        available_slots = min(available_slots, rate_limit_jobs)
         
         if available_slots <= 0:
-            print("Max concurrent jobs reached, waiting...")
+            print("No available slots (concurrent limit or rate limit), waiting...")
             return
         
         # Get pending scans

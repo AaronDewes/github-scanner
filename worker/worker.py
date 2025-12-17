@@ -12,11 +12,121 @@ import json
 import subprocess
 import hashlib
 import re
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import requests
+
+
+class GitHubRateLimiter:
+    """Handles GitHub API rate limit checking and waiting."""
+    
+    def __init__(self, token: Optional[str] = None, database_url: Optional[str] = None):
+        self.token = token
+        self.database_url = database_url
+        self.base_url = "https://api.github.com"
+        self.session = requests.Session()
+        
+        if token:
+            self.session.headers.update({
+                'Authorization': f'token {token}',
+                'Accept': 'application/vnd.github.v3+json'
+            })
+    
+    def check_rate_limit(self) -> Dict:
+        """Check current GitHub API rate limit status."""
+        try:
+            response = self.session.get(f"{self.base_url}/rate_limit")
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"Error checking rate limit: {e}", file=sys.stderr)
+            return {}
+    
+    def store_rate_limit(self, rate_limit_info: Dict):
+        """Store rate limit information in the database."""
+        if not self.database_url:
+            return
+        
+        try:
+            conn = psycopg2.connect(self.database_url)
+            cursor = conn.cursor()
+            
+            for api_type in ['core', 'search']:
+                if api_type in rate_limit_info.get('resources', {}):
+                    info = rate_limit_info['resources'][api_type]
+                    cursor.execute(
+                        """INSERT INTO rate_limits (api_type, limit_value, remaining, reset_at)
+                           VALUES (%s, %s, %s, to_timestamp(%s))""",
+                        (api_type, info.get('limit', 0), info.get('remaining', 0), info.get('reset', 0))
+                    )
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            print(f"Error storing rate limit: {e}", file=sys.stderr)
+    
+    def wait_for_rate_limit(self, min_remaining: int = 100) -> bool:
+        """
+        Check rate limits and wait if necessary.
+        
+        Args:
+            min_remaining: Minimum remaining requests before waiting
+            
+        Returns:
+            True if ready to proceed, False if rate limit cannot be resolved
+        """
+        rate_limit_info = self.check_rate_limit()
+        
+        if not rate_limit_info:
+            print("Warning: Could not check rate limit, proceeding anyway")
+            return True
+        
+        # Store rate limit info
+        self.store_rate_limit(rate_limit_info)
+        
+        # Check core API (used by octoscan)
+        core = rate_limit_info.get('resources', {}).get('core', {})
+        remaining = core.get('remaining', 5000)
+        reset_time = core.get('reset', 0)
+        
+        print(f"GitHub API rate limit: {remaining} requests remaining")
+        
+        if remaining < min_remaining:
+            wait_time = reset_time - time.time()
+            if wait_time > 0:
+                # Cap wait time at 1 hour
+                wait_time = min(wait_time, 3600)
+                print(f"Rate limit low ({remaining} remaining). Waiting {int(wait_time)} seconds...")
+                time.sleep(wait_time + 5)  # Add 5 seconds buffer
+                
+                # Re-check after waiting
+                return self.wait_for_rate_limit(min_remaining)
+            else:
+                print("Rate limit should have reset, proceeding...")
+        
+        return True
+    
+    def has_sufficient_quota(self, min_remaining: int = 100) -> Tuple[bool, int, int]:
+        """
+        Check if there's sufficient API quota without waiting.
+        
+        Returns:
+            Tuple of (has_quota, remaining, reset_timestamp)
+        """
+        rate_limit_info = self.check_rate_limit()
+        
+        if not rate_limit_info:
+            return True, 5000, 0  # Assume OK if can't check
+        
+        core = rate_limit_info.get('resources', {}).get('core', {})
+        remaining = core.get('remaining', 5000)
+        reset_time = core.get('reset', 0)
+        
+        return remaining >= min_remaining, remaining, reset_time
 
 
 class DatabaseConnection:
@@ -54,6 +164,7 @@ class GitHubScanner:
         self.owner, self.repo_name = self._parse_repo_url(repo_url)
         self.repository_id = None
         self.scan_queue_id = None
+        self.rate_limiter = GitHubRateLimiter(token=github_token, database_url=database_url)
         
     def _parse_repo_url(self, url: str) -> Tuple[str, str]:
         """Parse GitHub repository URL to extract owner and repo name."""
@@ -310,6 +421,24 @@ class GitHubScanner:
         # Default to main if extraction fails
         return 'main'
     
+    def _clean_file_path(self, file_path: str) -> str:
+        """Extract clean file path (starting from .github/) from octoscan output path.
+        
+        Input:  octoscan-output/owner/repo/branch/.github/workflows/file.yml
+        Output: .github/workflows/file.yml
+        """
+        parts = file_path.split(os.sep)
+        try:
+            # Find .github in the path and return from there onwards
+            for i, part in enumerate(parts):
+                if part == '.github':
+                    return os.sep.join(parts[i:])
+        except Exception as e:
+            print(f"Error cleaning file path {file_path}: {e}", file=sys.stderr)
+        
+        # Return original if extraction fails
+        return file_path
+    
     def _is_file_safe(self, db: DatabaseConnection, file_path: str, file_hash: str) -> bool:
         """Check if a file is marked as safe globally."""
         db.cursor.execute(
@@ -336,12 +465,15 @@ class GitHubScanner:
                 #   "end_column": 34
                 # }
                 
-                file_path = vuln.get('filepath', '')
-                full_path = os.path.join(workflows_dir, file_path) if not os.path.isabs(file_path) else file_path
+                raw_file_path = vuln.get('filepath', '')
+                full_path = os.path.join(workflows_dir, raw_file_path) if not os.path.isabs(raw_file_path) else raw_file_path
                 file_hash = self._calculate_file_hash(full_path) if os.path.exists(full_path) else ''
                 
+                # Clean up file path to just .github/workflows/... 
+                clean_file_path = self._clean_file_path(raw_file_path)
+                
                 # Check if file is marked as safe globally
-                if self._is_file_safe(db, file_path, file_hash):
+                if self._is_file_safe(db, clean_file_path, file_hash):
                     skipped_safe += 1
                     continue
                 
@@ -351,7 +483,7 @@ class GitHubScanner:
                 
                 # Extract branch name from file path
                 # octoscan dl creates structure: output_dir/owner/repo/branch/.github/workflows/file.yml
-                branch_name = self._extract_branch_from_path(file_path)
+                branch_name = self._extract_branch_from_path(raw_file_path)
                 
                 # Get or create branch
                 db.cursor.execute(
@@ -368,7 +500,7 @@ class GitHubScanner:
                 message = vuln.get('message', 'Security vulnerability detected')
                 title = message[:512] if len(message) > 512 else message
                 
-                # Insert vulnerability
+                # Insert vulnerability (store clean file path)
                 db.cursor.execute(
                     """INSERT INTO vulnerabilities 
                        (repository_id, branch_id, file_path, file_hash, vulnerability_type,
@@ -378,7 +510,7 @@ class GitHubScanner:
                     (
                         self.repository_id,
                         branch_id,
-                        file_path,
+                        clean_file_path,
                         file_hash,
                         vuln_kind,
                         severity,
@@ -463,6 +595,12 @@ class GitHubScanner:
         workflows_dir = '/tmp/octoscan-workflows'
         
         try:
+            # Check GitHub API rate limits before proceeding
+            print("Checking GitHub API rate limits...")
+            if not self.rate_limiter.wait_for_rate_limit(min_remaining=100):
+                print("Rate limit check failed, aborting scan")
+                return False
+            
             # Initialize database connection
             with DatabaseConnection(self.database_url) as db:
                 # Get or create repository entry

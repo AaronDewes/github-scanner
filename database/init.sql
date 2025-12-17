@@ -34,3 +34,6 @@ CREATE INDEX IF NOT EXISTS idx_safe_files_hash ON safe_files(file_hash);
 DROP TRIGGER IF EXISTS update_safe_files_updated_at ON safe_files;
 CREATE TRIGGER update_safe_files_updated_at BEFORE UPDATE ON safe_files
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Migration: Add default_branch column to repositories
+ALTER TABLE repositories ADD COLUMN IF NOT EXISTS default_branch VARCHAR(255) DEFAULT 'main';
