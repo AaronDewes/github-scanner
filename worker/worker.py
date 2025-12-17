@@ -128,10 +128,14 @@ class GitHubScanner:
     
     def _get_scan_queue_id(self, db: DatabaseConnection):
         """Find scan queue entry for this repository."""
+        # Look for 'processing' status first (set by queue_worker before job starts)
+        # Fall back to 'queued' status for manual/direct scans
         db.cursor.execute(
             """SELECT id FROM scan_queue 
-               WHERE repository_id = %s AND status = 'queued'
-               ORDER BY priority DESC, queued_at ASC
+               WHERE repository_id = %s AND status IN ('processing', 'queued')
+               ORDER BY 
+                 CASE status WHEN 'processing' THEN 1 ELSE 2 END,
+                 priority DESC, queued_at ASC
                LIMIT 1""",
             (self.repository_id,)
         )
@@ -306,8 +310,19 @@ class GitHubScanner:
         # Default to main if extraction fails
         return 'main'
     
+    def _is_file_safe(self, db: DatabaseConnection, file_path: str, file_hash: str) -> bool:
+        """Check if a file is marked as safe globally."""
+        db.cursor.execute(
+            """SELECT id FROM safe_files 
+               WHERE file_path = %s 
+               AND (file_hash IS NULL OR file_hash = %s)""",
+            (file_path, file_hash)
+        )
+        return db.cursor.fetchone() is not None
+    
     def _store_vulnerabilities(self, db: DatabaseConnection, vulnerabilities: List[Dict], workflows_dir: str):
         """Store discovered vulnerabilities in the database."""
+        skipped_safe = 0
         for vuln in vulnerabilities:
             try:
                 # Octoscan output format:
@@ -324,6 +339,11 @@ class GitHubScanner:
                 file_path = vuln.get('filepath', '')
                 full_path = os.path.join(workflows_dir, file_path) if not os.path.isabs(file_path) else file_path
                 file_hash = self._calculate_file_hash(full_path) if os.path.exists(full_path) else ''
+                
+                # Check if file is marked as safe globally
+                if self._is_file_safe(db, file_path, file_hash):
+                    skipped_safe += 1
+                    continue
                 
                 # Map vulnerability kind to severity
                 vuln_kind = vuln.get('kind', 'unknown')
@@ -377,6 +397,9 @@ class GitHubScanner:
                 import traceback
                 traceback.print_exc()
                 continue
+        
+        if skipped_safe > 0:
+            print(f"Skipped {skipped_safe} vulnerabilities from globally safe files")
     
     def _map_severity(self, vuln_kind: str) -> str:
         """Map octoscan vulnerability kind to severity level."""

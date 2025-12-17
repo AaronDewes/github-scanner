@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getVulnerabilities, updateVulnerabilityAnalysis } from '../api'
+import { getVulnerabilities, getVulnerabilityFilters, updateVulnerabilityAnalysis, markVulnerabilityFileSafe } from '../api'
 
 export default function Vulnerabilities() {
   const [vulnerabilities, setVulnerabilities] = useState([])
@@ -9,7 +9,13 @@ export default function Vulnerabilities() {
   const [total, setTotal] = useState(0)
   const [filters, setFilters] = useState({
     severity: '',
-    status: ''
+    status: '',
+    org: '',
+    repo: ''
+  })
+  const [filterOptions, setFilterOptions] = useState({
+    organizations: [],
+    repositories: []
   })
   const [selectedVuln, setSelectedVuln] = useState(null)
   const [analysisForm, setAnalysisForm] = useState({
@@ -21,8 +27,21 @@ export default function Vulnerabilities() {
   const pageSize = 50
 
   useEffect(() => {
+    loadFilterOptions()
+  }, [])
+
+  useEffect(() => {
     loadVulnerabilities()
   }, [page, filters])
+
+  const loadFilterOptions = async () => {
+    try {
+      const response = await getVulnerabilityFilters()
+      setFilterOptions(response.data)
+    } catch (err) {
+      console.error('Failed to load filter options:', err)
+    }
+  }
 
   const loadVulnerabilities = async () => {
     try {
@@ -30,6 +49,8 @@ export default function Vulnerabilities() {
       const cleanFilters = {}
       if (filters.severity) cleanFilters.severity = filters.severity
       if (filters.status) cleanFilters.status = filters.status
+      if (filters.org) cleanFilters.org = filters.org
+      if (filters.repo) cleanFilters.repo = filters.repo
       
       const response = await getVulnerabilities(page, pageSize, cleanFilters)
       setVulnerabilities(response.data.data)
@@ -41,6 +62,11 @@ export default function Vulnerabilities() {
       setLoading(false)
     }
   }
+
+  // Get repositories filtered by selected org
+  const filteredRepos = filters.org 
+    ? filterOptions.repositories.filter(r => r.owner === filters.org)
+    : filterOptions.repositories
 
   const handleUpdateAnalysis = async (e) => {
     e.preventDefault()
@@ -54,6 +80,23 @@ export default function Vulnerabilities() {
     }
   }
 
+  const handleMarkFileSafe = async () => {
+    if (!window.confirm('Mark this file as safe globally? This will ignore all vulnerabilities in this file across ALL repositories and branches.')) {
+      return
+    }
+    
+    try {
+      const reason = prompt('Reason for marking safe (optional):')
+      const markedBy = prompt('Your name (optional):')
+      await markVulnerabilityFileSafe(selectedVuln.id, reason, markedBy)
+      alert('File marked as safe globally. All matching vulnerabilities have been ignored.')
+      setSelectedVuln(null)
+      loadVulnerabilities()
+    } catch (err) {
+      alert('Failed to mark file safe: ' + err.message)
+    }
+  }
+
   const totalPages = Math.ceil(total / pageSize)
 
   return (
@@ -61,7 +104,39 @@ export default function Vulnerabilities() {
       <h2>Vulnerabilities</h2>
       
       <div className="card">
-        <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', gap: '20px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <div>
+            <label>Organization: </label>
+            <select 
+              value={filters.org} 
+              onChange={(e) => {
+                setFilters({ ...filters, org: e.target.value, repo: '' })
+                setPage(1)
+              }}
+            >
+              <option value="">All Organizations</option>
+              {filterOptions.organizations.map(org => (
+                <option key={org} value={org}>{org}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label>Repository: </label>
+            <select 
+              value={filters.repo} 
+              onChange={(e) => {
+                setFilters({ ...filters, repo: e.target.value })
+                setPage(1)
+              }}
+            >
+              <option value="">All Repositories</option>
+              {filteredRepos.map(repo => (
+                <option key={`${repo.owner}/${repo.name}`} value={repo.name}>
+                  {filters.org ? repo.name : `${repo.owner}/${repo.name}`}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label>Severity: </label>
             <select 
@@ -107,6 +182,7 @@ export default function Vulnerabilities() {
               <thead>
                 <tr>
                   <th>Severity</th>
+                  <th>Repository</th>
                   <th>Title</th>
                   <th>File</th>
                   <th>Status</th>
@@ -121,6 +197,9 @@ export default function Vulnerabilities() {
                       <span className={`badge ${vuln.severity}`}>
                         {vuln.severity}
                       </span>
+                    </td>
+                    <td style={{ fontSize: '12px' }}>
+                      {vuln.repo_owner}/{vuln.repo_name}
                     </td>
                     <td>{vuln.title}</td>
                     <td style={{ fontSize: '12px' }}>{vuln.file_path}</td>
@@ -236,9 +315,19 @@ export default function Vulnerabilities() {
                 />
               </div>
 
-              <button type="submit" className="button">
-                Update Analysis
-              </button>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button type="submit" className="button">
+                  Update Analysis
+                </button>
+                <button 
+                  type="button" 
+                  className="button" 
+                  style={{ backgroundColor: '#6c757d' }}
+                  onClick={handleMarkFileSafe}
+                >
+                  Mark File Safe (Global)
+                </button>
+              </div>
             </form>
           </div>
         </div>

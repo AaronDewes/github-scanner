@@ -119,6 +119,22 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 CREATE INDEX idx_rate_limits_api_type ON rate_limits(api_type);
 CREATE INDEX idx_rate_limits_reset ON rate_limits(reset_at);
 
+-- Safe files table (files marked as safe globally across all repos/branches)
+CREATE TABLE IF NOT EXISTS safe_files (
+    id SERIAL PRIMARY KEY,
+    file_path VARCHAR(1024) NOT NULL, -- The workflow file path pattern (e.g., .github/workflows/ci.yml)
+    file_hash VARCHAR(64), -- Optional: specific file hash to match
+    reason TEXT, -- Why the file is marked safe
+    marked_by VARCHAR(255), -- Who marked it safe
+    marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(file_path, file_hash)
+);
+
+CREATE INDEX idx_safe_files_path ON safe_files(file_path);
+CREATE INDEX idx_safe_files_hash ON safe_files(file_hash);
+
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -139,6 +155,9 @@ CREATE TRIGGER update_vulnerabilities_updated_at BEFORE UPDATE ON vulnerabilitie
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_scan_queue_updated_at BEFORE UPDATE ON scan_queue
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_safe_files_updated_at BEFORE UPDATE ON safe_files
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Create view for vulnerability statistics

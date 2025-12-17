@@ -202,11 +202,46 @@ async def get_repository(repository_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/vulnerabilities/filters")
+async def get_vulnerability_filters():
+    """Get unique organizations and repositories for vulnerability filtering."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                # Get unique organizations with vulnerabilities
+                cursor.execute(
+                    """SELECT DISTINCT r.owner 
+                       FROM repositories r
+                       JOIN vulnerabilities v ON r.id = v.repository_id
+                       ORDER BY r.owner"""
+                )
+                orgs = [row['owner'] for row in cursor.fetchall()]
+                
+                # Get unique repositories with vulnerabilities
+                cursor.execute(
+                    """SELECT DISTINCT r.owner, r.name 
+                       FROM repositories r
+                       JOIN vulnerabilities v ON r.id = v.repository_id
+                       ORDER BY r.owner, r.name"""
+                )
+                repos = [{'owner': row['owner'], 'name': row['name']} for row in cursor.fetchall()]
+        
+        return {
+            'organizations': orgs,
+            'repositories': repos
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/v1/vulnerabilities", response_model=PaginatedResponse)
 async def list_vulnerabilities(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     repository_id: Optional[int] = None,
+    org: Optional[str] = None,
+    repo: Optional[str] = None,
     severity: Optional[str] = None,
     status: Optional[str] = None
 ):
@@ -216,20 +251,28 @@ async def list_vulnerabilities(
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                # Build query
+                # Build query with join to repositories table
                 where_clauses = []
                 params = []
                 
                 if repository_id:
-                    where_clauses.append("repository_id = %s")
+                    where_clauses.append("v.repository_id = %s")
                     params.append(repository_id)
                 
+                if org:
+                    where_clauses.append("r.owner = %s")
+                    params.append(org)
+                
+                if repo:
+                    where_clauses.append("r.name = %s")
+                    params.append(repo)
+                
                 if severity:
-                    where_clauses.append("severity = %s")
+                    where_clauses.append("v.severity = %s")
                     params.append(severity)
                 
                 if status:
-                    where_clauses.append("status = %s")
+                    where_clauses.append("v.status = %s")
                     params.append(status)
                 
                 where_clause = ""
@@ -238,24 +281,29 @@ async def list_vulnerabilities(
                 
                 # Get total count
                 cursor.execute(
-                    f"SELECT COUNT(*) as count FROM vulnerabilities {where_clause}",
+                    f"""SELECT COUNT(*) as count FROM vulnerabilities v
+                       JOIN repositories r ON v.repository_id = r.id
+                       {where_clause}""",
                     params
                 )
                 total = cursor.fetchone()['count']
                 
-                # Get paginated results
+                # Get paginated results with repo info
                 params.extend([page_size, offset])
                 cursor.execute(
-                    f"""SELECT * FROM vulnerabilities {where_clause}
+                    f"""SELECT v.*, r.owner as repo_owner, r.name as repo_name
+                       FROM vulnerabilities v
+                       JOIN repositories r ON v.repository_id = r.id
+                       {where_clause}
                        ORDER BY 
-                         CASE severity 
+                         CASE v.severity 
                            WHEN 'critical' THEN 1
                            WHEN 'high' THEN 2
                            WHEN 'medium' THEN 3
                            WHEN 'low' THEN 4
                            ELSE 5
                          END,
-                         detected_at DESC
+                         v.detected_at DESC
                        LIMIT %s OFFSET %s""",
                     params
                 )
@@ -401,6 +449,127 @@ async def get_scan_queue(
                 
                 return [ScanQueueItem(**item) for item in items]
     
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Safe Files Endpoints
+
+@app.get("/api/v1/safe-files")
+async def list_safe_files():
+    """List all files marked as safe."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """SELECT * FROM safe_files ORDER BY file_path, marked_at DESC"""
+                )
+                files = cursor.fetchall()
+                return [dict(f) for f in files]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/safe-files")
+async def mark_file_safe(
+    file_path: str = Query(..., description="File path pattern to mark as safe"),
+    file_hash: Optional[str] = Query(None, description="Optional specific file hash"),
+    reason: Optional[str] = Query(None, description="Reason for marking safe"),
+    marked_by: Optional[str] = Query(None, description="Who marked it safe")
+):
+    """Mark a file as safe globally (across all repos and branches)."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """INSERT INTO safe_files (file_path, file_hash, reason, marked_by)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (file_path, file_hash) DO UPDATE
+                       SET reason = EXCLUDED.reason,
+                           marked_by = EXCLUDED.marked_by,
+                           marked_at = CURRENT_TIMESTAMP
+                       RETURNING *""",
+                    (file_path, file_hash, reason, marked_by)
+                )
+                result = cursor.fetchone()
+                conn.commit()
+                return dict(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/safe-files/{safe_file_id}")
+async def remove_safe_file(safe_file_id: int):
+    """Remove a file from the safe list."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM safe_files WHERE id = %s RETURNING id",
+                    (safe_file_id,)
+                )
+                result = cursor.fetchone()
+                if not result:
+                    raise HTTPException(status_code=404, detail="Safe file entry not found")
+                conn.commit()
+                return {"message": "Safe file entry removed", "id": safe_file_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/vulnerabilities/{vulnerability_id}/mark-file-safe")
+async def mark_vulnerability_file_safe(
+    vulnerability_id: int,
+    reason: Optional[str] = Query(None, description="Reason for marking safe"),
+    marked_by: Optional[str] = Query(None, description="Who marked it safe")
+):
+    """Mark the file from a vulnerability as safe globally."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                # Get the vulnerability
+                cursor.execute(
+                    "SELECT file_path, file_hash FROM vulnerabilities WHERE id = %s",
+                    (vulnerability_id,)
+                )
+                vuln = cursor.fetchone()
+                if not vuln:
+                    raise HTTPException(status_code=404, detail="Vulnerability not found")
+                
+                # Mark file as safe
+                cursor.execute(
+                    """INSERT INTO safe_files (file_path, file_hash, reason, marked_by)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (file_path, file_hash) DO UPDATE
+                       SET reason = EXCLUDED.reason,
+                           marked_by = EXCLUDED.marked_by,
+                           marked_at = CURRENT_TIMESTAMP
+                       RETURNING *""",
+                    (vuln['file_path'], vuln['file_hash'], reason, marked_by)
+                )
+                safe_file = cursor.fetchone()
+                
+                # Mark all vulnerabilities with this file as ignored
+                cursor.execute(
+                    """UPDATE vulnerabilities 
+                       SET status = 'ignored', 
+                           manual_analysis = COALESCE(manual_analysis, '') || '\nAuto-ignored: File marked as safe globally',
+                           analyzed_by = %s,
+                           analyzed_at = CURRENT_TIMESTAMP
+                       WHERE file_path = %s AND file_hash = %s AND status = 'open'""",
+                    (marked_by, vuln['file_path'], vuln['file_hash'])
+                )
+                
+                conn.commit()
+                return {
+                    "message": "File marked as safe globally",
+                    "safe_file": dict(safe_file),
+                    "file_path": vuln['file_path']
+                }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

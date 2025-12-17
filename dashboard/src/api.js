@@ -26,6 +26,8 @@ export const getVulnerabilities = (page = 1, pageSize = 50, filters = {}) => {
   return api.get('/vulnerabilities', { params })
 }
 
+export const getVulnerabilityFilters = () => api.get('/vulnerabilities/filters')
+
 export const getVulnerability = (id) => api.get(`/vulnerabilities/${id}`)
 
 export const updateVulnerabilityAnalysis = (id, data) => 
@@ -38,3 +40,23 @@ export const getScanQueue = (status = null) => {
 
 export const triggerScan = (repoUrl, priority = 0) => 
   api.post('/scan', { repo_url: repoUrl, priority })
+
+// Safe Files API
+export const getSafeFiles = () => api.get('/safe-files')
+
+export const markFileSafe = (filePath, fileHash = null, reason = null, markedBy = null) => {
+  const params = { file_path: filePath }
+  if (fileHash) params.file_hash = fileHash
+  if (reason) params.reason = reason
+  if (markedBy) params.marked_by = markedBy
+  return api.post('/safe-files', null, { params })
+}
+
+export const removeSafeFile = (id) => api.delete(`/safe-files/${id}`)
+
+export const markVulnerabilityFileSafe = (vulnId, reason = null, markedBy = null) => {
+  const params = {}
+  if (reason) params.reason = reason
+  if (markedBy) params.marked_by = markedBy
+  return api.post(`/vulnerabilities/${vulnId}/mark-file-safe`, null, { params })
+}
