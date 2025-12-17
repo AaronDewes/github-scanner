@@ -6,9 +6,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Download octoscan binary
-RUN wget -O /usr/local/bin/octoscan https://github.com/synacktiv/octoscan/releases/download/v0.1.6/octoscan && \
-    chmod +x /usr/local/bin/octoscan
+COPY octoscan /usr/local/bin/octoscan
 
 # Set working directory
 WORKDIR /app
