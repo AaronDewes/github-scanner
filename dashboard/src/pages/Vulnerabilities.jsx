@@ -189,8 +189,8 @@ export default function Vulnerabilities() {
                   <th>Repository</th>
                   <th>Title</th>
                   <th>File</th>
+                  <th>Branches</th>
                   <th style={{ width: '120px' }}>Status</th>
-                  <th style={{ width: '100px' }}>Detected</th>
                   <th style={{ width: '100px' }}>Actions</th>
                 </tr>
               </thead>
@@ -206,14 +206,42 @@ export default function Vulnerabilities() {
                       {vuln.repo_owner}/{vuln.repo_name}
                     </td>
                     <td>{vuln.title}</td>
-                    <td style={{ fontSize: '12px' }}>{vuln.file_path}</td>
+                    <td style={{ fontSize: '12px' }}>
+                      {vuln.github_url ? (
+                        <a 
+                          href={vuln.github_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          style={{ color: 'var(--primary)', textDecoration: 'none' }}
+                          title="View on GitHub"
+                        >
+                          {vuln.file_path}
+                          {vuln.line_number && `:${vuln.line_number}`}
+                          <span style={{ marginLeft: '4px', fontSize: '10px' }}>↗</span>
+                        </a>
+                      ) : (
+                        <span>{vuln.file_path}</span>
+                      )}
+                    </td>
+                    <td style={{ fontSize: '11px' }}>
+                      {vuln.branches && vuln.branches.length > 0 ? (
+                        <span title={vuln.branches.join(', ')}>
+                          {vuln.branches.length === 1 ? (
+                            <span className="badge" style={{ background: 'var(--gray-100)', color: 'var(--gray-700)', fontSize: '10px' }}>
+                              {vuln.branches[0]}
+                            </span>
+                          ) : (
+                            <span className="badge" style={{ background: 'var(--warning-light)', color: 'var(--gray-700)', fontSize: '10px' }}>
+                              {vuln.branches.length} branches
+                            </span>
+                          )}
+                        </span>
+                      ) : '—'}
+                    </td>
                     <td>
                       <span className={`badge ${vuln.status}`}>
                         {vuln.status}
                       </span>
-                    </td>
-                    <td>
-                      {new Date(vuln.detected_at).toLocaleDateString()}
                     </td>
                     <td>
                       <button 
@@ -278,11 +306,41 @@ export default function Vulnerabilities() {
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong style={{ color: 'var(--gray-600)' }}>File:</strong>{' '}
-                  <code style={{ background: 'var(--gray-200)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.85rem' }}>{selectedVuln.file_path}</code>
+                  {selectedVuln.github_url ? (
+                    <a 
+                      href={selectedVuln.github_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{ color: 'var(--primary)', textDecoration: 'none' }}
+                    >
+                      <code style={{ background: 'var(--gray-200)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.85rem' }}>
+                        {selectedVuln.file_path}
+                      </code>
+                      <span style={{ marginLeft: '6px', fontSize: '12px' }}>↗ View on GitHub</span>
+                    </a>
+                  ) : (
+                    <code style={{ background: 'var(--gray-200)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.85rem' }}>{selectedVuln.file_path}</code>
+                  )}
                 </p>
                 {selectedVuln.line_number && (
                   <p style={{ margin: 0 }}>
                     <strong style={{ color: 'var(--gray-600)' }}>Line:</strong> {selectedVuln.line_number}
+                  </p>
+                )}
+                {selectedVuln.branches && selectedVuln.branches.length > 0 && (
+                  <p style={{ margin: 0 }}>
+                    <strong style={{ color: 'var(--gray-600)' }}>Affected Branches:</strong>{' '}
+                    <span style={{ display: 'inline-flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {selectedVuln.branches.map(branch => (
+                        <span 
+                          key={branch} 
+                          className="badge" 
+                          style={{ background: 'var(--gray-200)', color: 'var(--gray-700)', fontSize: '11px' }}
+                        >
+                          {branch}
+                        </span>
+                      ))}
+                    </span>
                   </p>
                 )}
               </div>

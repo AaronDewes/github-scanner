@@ -245,7 +245,7 @@ async def list_vulnerabilities(
     severity: Optional[str] = None,
     status: Optional[str] = None
 ):
-    """List vulnerabilities with optional filters."""
+    """List vulnerabilities with optional filters, deduplicated across branches."""
     offset = (page - 1) * page_size
     
     try:
@@ -279,22 +279,52 @@ async def list_vulnerabilities(
                 if where_clauses:
                     where_clause = "WHERE " + " AND ".join(where_clauses)
                 
-                # Get total count
+                # Get total count of deduplicated vulnerabilities
                 cursor.execute(
-                    f"""SELECT COUNT(*) as count FROM vulnerabilities v
-                       JOIN repositories r ON v.repository_id = r.id
-                       {where_clause}""",
+                    f"""SELECT COUNT(*) as count FROM (
+                        SELECT DISTINCT v.repository_id, v.file_path, v.file_hash, v.vulnerability_type, v.line_number
+                        FROM vulnerabilities v
+                        JOIN repositories r ON v.repository_id = r.id
+                        {where_clause}
+                    ) AS deduped""",
                     params
                 )
                 total = cursor.fetchone()['count']
                 
-                # Get paginated results with repo info
+                # Get paginated results with repo info, deduplicated across branches
+                # Group by file + vuln type, aggregate branch names
                 params.extend([page_size, offset])
                 cursor.execute(
-                    f"""SELECT v.*, r.owner as repo_owner, r.name as repo_name
+                    f"""SELECT 
+                        MIN(v.id) as id,
+                        v.repository_id,
+                        r.owner as repo_owner, 
+                        r.name as repo_name,
+                        r.url as repo_url,
+                        v.file_path,
+                        v.file_hash,
+                        v.vulnerability_type,
+                        v.severity,
+                        v.title,
+                        MIN(v.description) as description,
+                        v.line_number,
+                        MIN(v.code_snippet) as code_snippet,
+                        MIN(v.recommendation) as recommendation,
+                        MIN(v.cwe_id) as cwe_id,
+                        MIN(v.cvss_score) as cvss_score,
+                        MIN(v.detected_at) as detected_at,
+                        MIN(v.status) as status,
+                        MIN(v.manual_analysis) as manual_analysis,
+                        MIN(v.analyzed_by) as analyzed_by,
+                        MIN(v.analyzed_at) as analyzed_at,
+                        ARRAY_AGG(DISTINCT b.name) FILTER (WHERE b.name IS NOT NULL) as branches,
+                        COUNT(DISTINCT b.id) as branch_count
                        FROM vulnerabilities v
                        JOIN repositories r ON v.repository_id = r.id
+                       LEFT JOIN branches b ON v.branch_id = b.id
                        {where_clause}
+                       GROUP BY v.repository_id, r.owner, r.name, r.url, v.file_path, v.file_hash, 
+                                v.vulnerability_type, v.severity, v.title, v.line_number
                        ORDER BY 
                          CASE v.severity 
                            WHEN 'critical' THEN 1
@@ -303,17 +333,32 @@ async def list_vulnerabilities(
                            WHEN 'low' THEN 4
                            ELSE 5
                          END,
-                         v.detected_at DESC
+                         MIN(v.detected_at) DESC
                        LIMIT %s OFFSET %s""",
                     params
                 )
                 vulnerabilities = cursor.fetchall()
+                
+                # Add GitHub URL to each vulnerability
+                result = []
+                for vuln in vulnerabilities:
+                    vuln_dict = dict(vuln)
+                    # Construct GitHub URL for the workflow file
+                    # Use first branch or default to main
+                    branches = vuln_dict.get('branches') or []
+                    default_branch = branches[0] if branches else 'main'
+                    if vuln_dict.get('repo_url'):
+                        base_url = vuln_dict['repo_url'].replace('.git', '')
+                        vuln_dict['github_url'] = f"{base_url}/blob/{default_branch}/{vuln_dict['file_path']}"
+                        if vuln_dict.get('line_number'):
+                            vuln_dict['github_url'] += f"#L{vuln_dict['line_number']}"
+                    result.append(vuln_dict)
         
         return PaginatedResponse(
             total=total,
             page=page,
             page_size=page_size,
-            data=[dict(vuln) for vuln in vulnerabilities]
+            data=result
         )
     
     except Exception as e:
@@ -435,14 +480,18 @@ async def get_scan_queue(
                 params = []
                 
                 if status:
-                    where_clause = "WHERE status = %s"
+                    where_clause = "WHERE sq.status = %s"
                     params.append(status)
                 
                 params.append(limit)
                 cursor.execute(
-                    f"""SELECT * FROM scan_queue {where_clause}
-                       ORDER BY priority DESC, queued_at ASC
-                       LIMIT %s""",
+                    f"""SELECT sq.*, 
+                               CONCAT(r.owner, '/', r.name) as repository_name
+                        FROM scan_queue sq
+                        LEFT JOIN repositories r ON sq.repository_id = r.id
+                        {where_clause}
+                        ORDER BY sq.priority DESC, sq.queued_at ASC
+                        LIMIT %s""",
                     params
                 )
                 items = cursor.fetchall()

@@ -61,7 +61,7 @@ export default function ScanQueue() {
           <table className="table">
             <thead>
               <tr>
-                <th>Repository ID</th>
+                <th>Repository</th>
                 <th>Status</th>
                 <th>Priority</th>
                 <th>Attempts</th>
@@ -74,7 +74,9 @@ export default function ScanQueue() {
             <tbody>
               {queue.map((item) => (
                 <tr key={item.id}>
-                  <td style={{ fontWeight: 600 }}>#{item.repository_id}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {item.repository_name || `#${item.repository_id}`}
+                  </td>
                   <td>
                     <span className={`badge ${item.status}`}>
                       {item.status}

@@ -87,6 +87,7 @@ class ScanResponse(BaseModel):
 class ScanQueueItem(BaseModel):
     id: int
     repository_id: int
+    repository_name: Optional[str] = None
     priority: int
     status: str
     attempts: int
