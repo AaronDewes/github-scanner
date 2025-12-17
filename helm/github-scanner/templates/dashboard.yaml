@@ -1,0 +1,51 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-dashboard
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "github-scanner.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dashboard
+  template:
+    metadata:
+      labels:
+        {{- include "github-scanner.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: {{ include "github-scanner.image" (dict "root" . "component" .Values.dashboard) }}
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.dashboard.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.dashboard.service.targetPort }}
+          name: http
+          protocol: TCP
+        resources:
+          {{- toYaml .Values.dashboard.resources | nindent 10 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-dashboard
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  type: {{ .Values.dashboard.service.type }}
+  ports:
+  - port: {{ .Values.dashboard.service.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "github-scanner.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+{{- end }}

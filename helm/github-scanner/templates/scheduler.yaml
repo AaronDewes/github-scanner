@@ -1,0 +1,58 @@
+{{- if .Values.scheduler.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-scheduler
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+spec:
+  replicas: {{ .Values.scheduler.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "github-scanner.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scheduler
+  template:
+    metadata:
+      labels:
+        {{- include "github-scanner.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: scheduler
+    spec:
+      serviceAccountName: {{ include "github-scanner.serviceAccountName" . }}
+      containers:
+      - name: scheduler
+        image: {{ include "github-scanner.image" (dict "root" . "component" .Values.scheduler) }}
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.scheduler.image.pullPolicy }}
+        env:
+        - name: DATABASE_URL
+          {{- if .Values.database.external.existingSecret }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.database.external.existingSecret }}
+              key: {{ .Values.database.external.existingSecretKey }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "github-scanner.fullname" . }}-secrets
+              key: database-url
+          {{- end }}
+        - name: GITHUB_TOKEN
+          {{- if .Values.github.existingSecret }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.github.existingSecret }}
+              key: {{ .Values.github.existingSecretKey }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "github-scanner.fullname" . }}-secrets
+              key: github-token
+          {{- end }}
+        - name: SCAN_INTERVAL
+          value: {{ .Values.scheduler.config.scanInterval | quote }}
+        - name: TOP_REPOS_COUNT
+          value: {{ .Values.scheduler.config.topReposCount | quote }}
+        resources:
+          {{- toYaml .Values.scheduler.resources | nindent 10 }}
+{{- end }}

@@ -1,0 +1,43 @@
+{{- if .Values.kueue.enabled }}
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: {{ .Values.kueue.clusterQueue.resourceGroups.0.flavors.0.name }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: {{ .Values.kueue.clusterQueue.name }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.kueue.clusterQueue.namespaceSelector }}
+  namespaceSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  resourceGroups:
+  {{- range .Values.kueue.clusterQueue.resourceGroups }}
+  - coveredResources: {{ toYaml .coveredResources | nindent 4 }}
+    flavors:
+    {{- range .flavors }}
+    - name: {{ .name }}
+      resources:
+      {{- range .resources }}
+      - name: {{ .name }}
+        nominalQuota: {{ .nominalQuota }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: {{ .Values.kueue.localQueue.name }}
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+spec:
+  clusterQueue: {{ .Values.kueue.localQueue.clusterQueue }}
+{{- end }}

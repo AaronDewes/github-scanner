@@ -1,0 +1,15 @@
+{{- if .Values.database.internal.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-postgres-init
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+data:
+  01-schema.sql: |
+{{ .Files.Get "../../database/schema.sql" | nindent 4 }}
+  02-init.sql: |
+{{ .Files.Get "../../database/init.sql" | nindent 4 }}
+{{- end }}

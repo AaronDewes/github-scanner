@@ -1,0 +1,91 @@
+{{- if .Values.api.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-api
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "github-scanner.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "github-scanner.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: {{ include "github-scanner.serviceAccountName" . }}
+      containers:
+      - name: api
+        image: {{ include "github-scanner.image" (dict "root" . "component" .Values.api) }}
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.api.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.api.service.targetPort }}
+          name: http
+          protocol: TCP
+        env:
+        - name: DATABASE_URL
+          {{- if .Values.database.external.existingSecret }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.database.external.existingSecret }}
+              key: {{ .Values.database.external.existingSecretKey }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "github-scanner.fullname" . }}-secrets
+              key: database-url
+          {{- end }}
+        - name: GITHUB_TOKEN
+          {{- if .Values.github.existingSecret }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.github.existingSecret }}
+              key: {{ .Values.github.existingSecretKey }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "github-scanner.fullname" . }}-secrets
+              key: github-token
+          {{- end }}
+        - name: KUEUE_NAMESPACE
+          value: {{ include "github-scanner.namespace" . | quote }}
+        {{- range $key, $value := .Values.api.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.api.resources | nindent 10 }}
+        {{- with .Values.api.livenessProbe }}
+        livenessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.api.readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-api
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: {{ .Values.api.service.type }}
+  ports:
+  - port: {{ .Values.api.service.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "github-scanner.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+{{- end }}

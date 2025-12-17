@@ -1,0 +1,318 @@
+# Default values for github-scanner
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global settings
+global:
+  # Container registry
+  registry: ghcr.io/aarondewes
+  # Image pull policy
+  imagePullPolicy: Always
+  # Image tag (overrides the image tag whose default is the chart appVersion)
+  imageTag: "main"
+
+# GitHub token for API access (required)
+github:
+  # GitHub personal access token
+  # Can be set via --set github.token=<token> or in a secret
+  token: ""
+  # Existing secret containing GitHub token
+  # If set, will use this secret instead of creating one
+  existingSecret: ""
+  # Key in the existing secret that contains the token
+  existingSecretKey: "github-token"
+
+# Database configuration
+database:
+  # Use external PostgreSQL database
+  external:
+    enabled: false
+    host: ""
+    port: 5432
+    database: "github_scanner"
+    username: "scanner"
+    password: ""
+    # Existing secret containing database URL
+    existingSecret: ""
+    existingSecretKey: "database-url"
+  
+  # Internal PostgreSQL (enabled by default)
+  internal:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: postgres
+      tag: "15"
+      pullPolicy: IfNotPresent
+    persistence:
+      enabled: true
+      storageClass: ""
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    # PostgreSQL configuration
+    config:
+      database: "github_scanner"
+      username: "scanner"
+      password: "changeme"
+
+# API service configuration
+api:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: github-scanner-api
+    pullPolicy: ""  # Uses global.imagePullPolicy if not set
+    tag: ""  # Uses global.imageTag if not set
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  
+  # Environment variables
+  env:
+    API_HOST: "0.0.0.0"
+    API_PORT: "8000"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+# Scheduler service configuration
+scheduler:
+  enabled: true
+  replicaCount: 1
+  
+  image:
+    repository: github-scanner-scheduler
+    pullPolicy: ""  # Uses global.imagePullPolicy if not set
+    tag: ""  # Uses global.imageTag if not set
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  # Scheduler configuration
+  config:
+    # Interval between scans (seconds)
+    scanInterval: 86400  # 24 hours
+    # Number of top repositories to scan
+    topReposCount: 10000
+
+# Dashboard service configuration
+dashboard:
+  enabled: true
+  replicaCount: 1
+  
+  image:
+    repository: github-scanner-dashboard
+    pullPolicy: ""  # Uses global.imagePullPolicy if not set
+    tag: ""  # Uses global.imageTag if not set
+  
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# Worker configuration
+worker:
+  image:
+    repository: github-scanner-worker
+    pullPolicy: ""  # Uses global.imagePullPolicy if not set
+    tag: ""  # Uses global.imageTag if not set
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 4Gi
+  
+  # Job configuration
+  job:
+    backoffLimit: 3
+    ttlSecondsAfterFinished: 3600
+    restartPolicy: Never
+
+# Kueue configuration
+kueue:
+  enabled: true
+  
+  # ClusterQueue configuration
+  clusterQueue:
+    name: "scanner-cluster-queue"
+    namespaceSelector: {}
+    resourceGroups:
+      - coveredResources: ["cpu", "memory"]
+        flavors:
+          - name: "default-flavor"
+            resources:
+              - name: "cpu"
+                nominalQuota: 10
+              - name: "memory"
+                nominalQuota: "40Gi"
+  
+  # LocalQueue configuration
+  localQueue:
+    name: "scanner-queue"
+    clusterQueue: "scanner-cluster-queue"
+
+# Service Account configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "scanner-sa"
+
+# RBAC configuration
+rbac:
+  create: true
+
+# Namespace
+namespaceOverride: ""
+
+# Additional labels to add to all resources
+commonLabels: {}
+
+# Additional annotations to add to all resources
+commonAnnotations: {}
+
+# Traefik IngressRoute configuration
+traefik:
+  enabled: false
+  
+  # Dashboard IngressRoute
+  dashboard:
+    enabled: true
+    host: "scanner.example.com"
+    path: ""  # Empty for root, or "/ui" for subpath
+    
+    # Entry points (web for HTTP, websecure for HTTPS)
+    entryPoints:
+      - websecure
+    
+    # Basic Authentication
+    basicAuth:
+      enabled: true
+      # Users in format "username:hashed-password"
+      # Generate with: htpasswd -nb username password
+      # Default is admin:admin (CHANGE THIS!)
+      users: "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+      removeHeader: true
+    
+    # Rate limiting
+    rateLimit:
+      enabled: true
+      average: 100  # Average requests per second
+      burst: 50     # Burst size
+    
+    # TLS configuration
+    tls:
+      enabled: true
+      # Use cert-manager or provide your own certificate
+      certResolver: ""  # e.g., "letsencrypt"
+      secretName: ""    # Existing TLS secret
+      domains: []
+      # - main: scanner.example.com
+      #   sans:
+      #     - www.scanner.example.com
+    
+    # Additional middlewares to apply
+    middlewares: []
+    
+    # Additional annotations
+    annotations: {}
+  
+  # API IngressRoute
+  api:
+    enabled: true
+    host: "api.scanner.example.com"
+    path: ""  # Empty for root, or "/api" for subpath
+    
+    # Entry points
+    entryPoints:
+      - websecure
+    
+    # Basic Authentication (optional for API)
+    basicAuth:
+      enabled: true
+      # Users in format "username:hashed-password"
+      # Generate with: htpasswd -nb username password
+      # Default is admin:admin (CHANGE THIS!)
+      users: "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+      removeHeader: false  # Keep auth header for API
+    
+    # CORS configuration
+    cors:
+      enabled: true
+      allowOrigins:
+        - "https://scanner.example.com"
+        - "http://localhost:3000"
+      allowMethods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+        - PATCH
+      allowHeaders:
+        - "*"
+      allowCredentials: true
+      maxAge: 3600
+    
+    # Rate limiting
+    rateLimit:
+      enabled: true
+      average: 50   # Average requests per second
+      burst: 25     # Burst size
+    
+    # TLS configuration
+    tls:
+      enabled: true
+      certResolver: ""  # e.g., "letsencrypt"
+      secretName: ""
+      domains: []
+    
+    # Additional middlewares to apply
+    middlewares: []
+    
+    # Additional annotations
+    annotations: {}

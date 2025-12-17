@@ -1,0 +1,109 @@
+{{- if .Values.database.internal.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-postgres-pvc
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.database.internal.persistence.storageClass }}
+  storageClassName: {{ .Values.database.internal.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.database.internal.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-postgres
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "github-scanner.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        {{- include "github-scanner.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+      - name: postgres
+        image: "{{ .Values.database.internal.image.registry }}/{{ .Values.database.internal.image.repository }}:{{ .Values.database.internal.image.tag }}"
+        imagePullPolicy: {{ .Values.database.internal.image.pullPolicy }}
+        env:
+        - name: POSTGRES_DB
+          value: {{ .Values.database.internal.config.database | quote }}
+        - name: POSTGRES_USER
+          value: {{ .Values.database.internal.config.username | quote }}
+        - name: POSTGRES_PASSWORD
+          value: {{ .Values.database.internal.config.password | quote }}
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          {{- toYaml .Values.database.internal.resources | nindent 10 }}
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - {{ .Values.database.internal.config.username }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - {{ .Values.database.internal.config.username }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-data
+        {{- if .Values.database.internal.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "github-scanner.fullname" . }}-postgres-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: init-scripts
+        configMap:
+          name: {{ include "github-scanner.fullname" . }}-postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-postgres
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: postgres
+    protocol: TCP
+    name: postgres
+  selector:
+    {{- include "github-scanner.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+{{- end }}

@@ -1,0 +1,92 @@
+{{- if and .Values.traefik.enabled .Values.traefik.dashboard.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-dashboard-auth
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+type: Opaque
+data:
+  # Default: admin:admin (change this!)
+  # Generate with: htpasswd -nb username password | base64
+  users: {{ .Values.traefik.dashboard.basicAuth.users | b64enc | quote }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-dashboard-auth
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+spec:
+  basicAuth:
+    secret: {{ include "github-scanner.fullname" . }}-dashboard-auth
+    {{- if .Values.traefik.dashboard.basicAuth.removeHeader }}
+    removeHeader: true
+    {{- end }}
+---
+{{- if .Values.traefik.dashboard.rateLimit.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-dashboard-ratelimit
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+spec:
+  rateLimit:
+    average: {{ .Values.traefik.dashboard.rateLimit.average }}
+    {{- if .Values.traefik.dashboard.rateLimit.burst }}
+    burst: {{ .Values.traefik.dashboard.rateLimit.burst }}
+    {{- end }}
+{{- end }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-dashboard
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+  {{- with .Values.traefik.dashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- range .Values.traefik.dashboard.entryPoints }}
+    - {{ . }}
+    {{- end }}
+  routes:
+  - match: Host(`{{ .Values.traefik.dashboard.host }}`){{ if .Values.traefik.dashboard.path }} && PathPrefix(`{{ .Values.traefik.dashboard.path }}`){{ end }}
+    kind: Rule
+    middlewares:
+    - name: {{ include "github-scanner.fullname" . }}-dashboard-auth
+    {{- if .Values.traefik.dashboard.rateLimit.enabled }}
+    - name: {{ include "github-scanner.fullname" . }}-dashboard-ratelimit
+    {{- end }}
+    {{- with .Values.traefik.dashboard.middlewares }}
+    {{- range . }}
+    - name: {{ . }}
+    {{- end }}
+    {{- end }}
+    services:
+    - name: {{ include "github-scanner.fullname" . }}-dashboard
+      port: {{ .Values.dashboard.service.port }}
+  {{- if .Values.traefik.dashboard.tls.enabled }}
+  tls:
+    {{- if .Values.traefik.dashboard.tls.secretName }}
+    secretName: {{ .Values.traefik.dashboard.tls.secretName }}
+    {{- end }}
+    {{- if .Values.traefik.dashboard.tls.certResolver }}
+    certResolver: {{ .Values.traefik.dashboard.tls.certResolver }}
+    {{- end }}
+    {{- with .Values.traefik.dashboard.tls.domains }}
+    domains:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+{{- end }}

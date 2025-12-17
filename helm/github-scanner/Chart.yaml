@@ -1,0 +1,17 @@
+apiVersion: v2
+name: github-scanner
+description: A Helm chart for GitHub Actions security vulnerability scanner
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - github
+  - security
+  - scanner
+  - octoscan
+  - actions
+maintainers:
+  - name: aarondewes
+    url: https://github.com/aarondewes
+sources:
+  - https://github.com/aarondewes/github-scanner
