@@ -280,9 +280,10 @@ async def list_vulnerabilities(
                     where_clause = "WHERE " + " AND ".join(where_clauses)
                 
                 # Get total count of deduplicated vulnerabilities
+                # Deduplicate by file_hash + vulnerability_type + line_number across ALL repos/branches
                 cursor.execute(
                     f"""SELECT COUNT(*) as count FROM (
-                        SELECT DISTINCT v.repository_id, v.file_path, v.file_hash, v.vulnerability_type, v.line_number
+                        SELECT DISTINCT v.file_hash, v.vulnerability_type, v.line_number
                         FROM vulnerabilities v
                         JOIN repositories r ON v.repository_id = r.id
                         {where_clause}
@@ -291,16 +292,14 @@ async def list_vulnerabilities(
                 )
                 total = cursor.fetchone()['count']
                 
-                # Get paginated results with repo info, deduplicated across branches
-                # Group by file + vuln type, aggregate branch names
+                # Get paginated results deduplicated across repos and branches
+                # Group by file_hash + vuln type + line (identical files = identical vulns)
+                # Aggregate repos and branches
                 params.extend([page_size, offset])
                 cursor.execute(
                     f"""SELECT 
                         MIN(v.id) as id,
-                        v.repository_id,
-                        r.owner as repo_owner, 
-                        r.name as repo_name,
-                        r.url as repo_url,
+                        MIN(v.repository_id) as repository_id,
                         v.file_path,
                         v.file_hash,
                         v.vulnerability_type,
@@ -317,14 +316,19 @@ async def list_vulnerabilities(
                         MIN(v.manual_analysis) as manual_analysis,
                         MIN(v.analyzed_by) as analyzed_by,
                         MIN(v.analyzed_at) as analyzed_at,
+                        ARRAY_AGG(DISTINCT CONCAT(r.owner, '/', r.name)) as repositories,
                         ARRAY_AGG(DISTINCT b.name) FILTER (WHERE b.name IS NOT NULL) as branches,
-                        COUNT(DISTINCT b.id) as branch_count
+                        COUNT(DISTINCT r.id) as repo_count,
+                        COUNT(DISTINCT b.id) as branch_count,
+                        MIN(r.url) as repo_url,
+                        MIN(r.owner) as repo_owner,
+                        MIN(r.name) as repo_name,
+                        MIN(r.default_branch) as default_branch
                        FROM vulnerabilities v
                        JOIN repositories r ON v.repository_id = r.id
                        LEFT JOIN branches b ON v.branch_id = b.id
                        {where_clause}
-                       GROUP BY v.repository_id, r.owner, r.name, r.url, v.file_path, v.file_hash, 
-                                v.vulnerability_type, v.severity, v.title, v.line_number
+                       GROUP BY v.file_hash, v.file_path, v.vulnerability_type, v.severity, v.title, v.line_number
                        ORDER BY 
                          CASE v.severity 
                            WHEN 'critical' THEN 1
@@ -344,12 +348,23 @@ async def list_vulnerabilities(
                 for vuln in vulnerabilities:
                     vuln_dict = dict(vuln)
                     # Construct GitHub URL for the workflow file
-                    # Use first branch or default to main
+                    # Priority: 1) default_branch if in affected branches, 2) first affected branch, 3) 'main'
                     branches = vuln_dict.get('branches') or []
-                    default_branch = branches[0] if branches else 'main'
+                    repo_default_branch = vuln_dict.get('default_branch')
+                    
+                    if repo_default_branch and repo_default_branch in branches:
+                        # Use repo's default branch if it's one of the affected branches
+                        url_branch = repo_default_branch
+                    elif branches:
+                        # Otherwise use first affected branch
+                        url_branch = branches[0]
+                    else:
+                        # Fall back to repo default or 'main'
+                        url_branch = repo_default_branch or 'main'
+                    
                     if vuln_dict.get('repo_url'):
                         base_url = vuln_dict['repo_url'].replace('.git', '')
-                        vuln_dict['github_url'] = f"{base_url}/blob/{default_branch}/{vuln_dict['file_path']}"
+                        vuln_dict['github_url'] = f"{base_url}/blob/{url_branch}/{vuln_dict['file_path']}"
                         if vuln_dict.get('line_number'):
                             vuln_dict['github_url'] += f"#L{vuln_dict['line_number']}"
                     result.append(vuln_dict)

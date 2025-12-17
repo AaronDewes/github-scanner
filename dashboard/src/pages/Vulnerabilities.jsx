@@ -186,10 +186,10 @@ export default function Vulnerabilities() {
               <thead>
                 <tr>
                   <th style={{ width: '100px' }}>Severity</th>
-                  <th>Repository</th>
+                  <th>Repositories</th>
                   <th>Title</th>
                   <th>File</th>
-                  <th>Branches</th>
+                  <th>Occurrences</th>
                   <th style={{ width: '120px' }}>Status</th>
                   <th style={{ width: '100px' }}>Actions</th>
                 </tr>
@@ -202,8 +202,20 @@ export default function Vulnerabilities() {
                         {vuln.severity}
                       </span>
                     </td>
-                    <td style={{ fontSize: '12px' }}>
-                      {vuln.repo_owner}/{vuln.repo_name}
+                    <td style={{ fontSize: '11px' }}>
+                      {vuln.repositories && vuln.repositories.length > 0 ? (
+                        vuln.repositories.length === 1 ? (
+                          <span>{vuln.repositories[0]}</span>
+                        ) : (
+                          <span title={vuln.repositories.join('\n')}>
+                            <span className="badge" style={{ background: 'var(--info-light)', color: 'var(--gray-700)', fontSize: '10px' }}>
+                              {vuln.repositories.length} repos
+                            </span>
+                          </span>
+                        )
+                      ) : (
+                        <span>{vuln.repo_owner}/{vuln.repo_name}</span>
+                      )}
                     </td>
                     <td>{vuln.title}</td>
                     <td style={{ fontSize: '12px' }}>
@@ -224,19 +236,18 @@ export default function Vulnerabilities() {
                       )}
                     </td>
                     <td style={{ fontSize: '11px' }}>
-                      {vuln.branches && vuln.branches.length > 0 ? (
-                        <span title={vuln.branches.join(', ')}>
-                          {vuln.branches.length === 1 ? (
-                            <span className="badge" style={{ background: 'var(--gray-100)', color: 'var(--gray-700)', fontSize: '10px' }}>
-                              {vuln.branches[0]}
-                            </span>
-                          ) : (
-                            <span className="badge" style={{ background: 'var(--warning-light)', color: 'var(--gray-700)', fontSize: '10px' }}>
-                              {vuln.branches.length} branches
-                            </span>
-                          )}
-                        </span>
-                      ) : '—'}
+                      <span style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {vuln.repo_count > 1 && (
+                          <span className="badge" style={{ background: 'var(--info-light)', color: 'var(--gray-700)', fontSize: '10px' }}>
+                            {vuln.repo_count} repos
+                          </span>
+                        )}
+                        {vuln.branches && vuln.branches.length > 0 && (
+                          <span title={vuln.branches.join(', ')} className="badge" style={{ background: 'var(--gray-100)', color: 'var(--gray-700)', fontSize: '10px' }}>
+                            {vuln.branches.length} {vuln.branches.length === 1 ? 'branch' : 'branches'}
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td>
                       <span className={`badge ${vuln.status}`}>
@@ -325,6 +336,22 @@ export default function Vulnerabilities() {
                 {selectedVuln.line_number && (
                   <p style={{ margin: 0 }}>
                     <strong style={{ color: 'var(--gray-600)' }}>Line:</strong> {selectedVuln.line_number}
+                  </p>
+                )}
+                {selectedVuln.repositories && selectedVuln.repositories.length > 0 && (
+                  <p style={{ margin: 0 }}>
+                    <strong style={{ color: 'var(--gray-600)' }}>Affected Repositories:</strong>{' '}
+                    <span style={{ display: 'inline-flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {selectedVuln.repositories.map(repo => (
+                        <span 
+                          key={repo} 
+                          className="badge" 
+                          style={{ background: 'var(--info-light)', color: 'var(--gray-700)', fontSize: '11px' }}
+                        >
+                          {repo}
+                        </span>
+                      ))}
+                    </span>
                   </p>
                 )}
                 {selectedVuln.branches && selectedVuln.branches.length > 0 && (
