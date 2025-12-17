@@ -482,6 +482,40 @@ async def get_vulnerability_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/stats/summary")
+async def get_vulnerability_summary():
+    """Get deduplicated vulnerability summary statistics."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                # Get deduplicated global stats
+                cursor.execute("SELECT * FROM vulnerability_stats_deduped")
+                deduped = cursor.fetchone()
+                
+                # Get repository count
+                cursor.execute("SELECT COUNT(*) as count FROM repositories")
+                repo_count = cursor.fetchone()['count']
+                
+                # Get scanned repository count
+                cursor.execute("SELECT COUNT(*) as count FROM repositories WHERE scan_status = 'completed'")
+                scanned_count = cursor.fetchone()['count']
+                
+                return {
+                    "total_vulnerabilities": deduped['total_vulnerabilities'] if deduped else 0,
+                    "critical_count": deduped['critical_count'] if deduped else 0,
+                    "high_count": deduped['high_count'] if deduped else 0,
+                    "medium_count": deduped['medium_count'] if deduped else 0,
+                    "low_count": deduped['low_count'] if deduped else 0,
+                    "open_count": deduped['open_count'] if deduped else 0,
+                    "confirmed_count": deduped['confirmed_count'] if deduped else 0,
+                    "total_repositories": repo_count,
+                    "scanned_repositories": scanned_count
+                }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/v1/queue", response_model=List[ScanQueueItem])
 async def get_scan_queue(
     status: Optional[str] = None,

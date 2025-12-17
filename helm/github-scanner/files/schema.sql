@@ -166,7 +166,7 @@ DROP TRIGGER IF EXISTS update_safe_files_updated_at ON safe_files;
 CREATE TRIGGER update_safe_files_updated_at BEFORE UPDATE ON safe_files
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Create view for vulnerability statistics
+-- Create view for vulnerability statistics (raw counts per repo)
 CREATE OR REPLACE VIEW vulnerability_stats AS
 SELECT 
     r.id as repository_id,
@@ -183,3 +183,24 @@ SELECT
 FROM repositories r
 LEFT JOIN vulnerabilities v ON r.id = v.repository_id
 GROUP BY r.id, r.owner, r.name;
+
+-- Create view for deduplicated vulnerability statistics (unique vulns by file_hash)
+CREATE OR REPLACE VIEW vulnerability_stats_deduped AS
+SELECT 
+    COUNT(*) as total_vulnerabilities,
+    COUNT(CASE WHEN severity = 'critical' THEN 1 END) as critical_count,
+    COUNT(CASE WHEN severity = 'high' THEN 1 END) as high_count,
+    COUNT(CASE WHEN severity = 'medium' THEN 1 END) as medium_count,
+    COUNT(CASE WHEN severity = 'low' THEN 1 END) as low_count,
+    COUNT(CASE WHEN status = 'open' THEN 1 END) as open_count,
+    COUNT(CASE WHEN status = 'confirmed' THEN 1 END) as confirmed_count
+FROM (
+    SELECT DISTINCT 
+        v.file_hash, 
+        v.vulnerability_type, 
+        v.line_number,
+        v.severity,
+        MIN(v.status) as status
+    FROM vulnerabilities v
+    GROUP BY v.file_hash, v.vulnerability_type, v.line_number, v.severity
+) AS deduped;

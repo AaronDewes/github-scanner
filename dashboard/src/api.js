@@ -13,6 +13,8 @@ export const getHealth = () => api.get('/health')
 
 export const getStats = () => api.get('/stats')
 
+export const getStatsSummary = () => api.get('/stats/summary')
+
 export const getRepositories = (page = 1, pageSize = 50, status = null) => {
   const params = { page, page_size: pageSize }
   if (status) params.status = status
