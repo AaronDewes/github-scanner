@@ -11,30 +11,30 @@ export const api = axios.create({
 
 export const getHealth = () => api.get('/health')
 
-export const getStats = () => api.get(`${API_URL}/stats`)
+export const getStats = () => api.get('/stats')
 
 export const getRepositories = (page = 1, pageSize = 50, status = null) => {
   const params = { page, page_size: pageSize }
   if (status) params.status = status
-  return api.get(`${API_URL}/repositories`, { params })
+  return api.get('/repositories', { params })
 }
 
-export const getRepository = (id) => api.get(`${API_URL}/repositories/${id}`)
+export const getRepository = (id) => api.get(`/repositories/${id}`)
 
 export const getVulnerabilities = (page = 1, pageSize = 50, filters = {}) => {
   const params = { page, page_size: pageSize, ...filters }
-  return api.get(`${API_URL}/vulnerabilities`, { params })
+  return api.get('/vulnerabilities', { params })
 }
 
-export const getVulnerability = (id) => api.get(`${API_URL}/vulnerabilities/${id}`)
+export const getVulnerability = (id) => api.get(`/vulnerabilities/${id}`)
 
 export const updateVulnerabilityAnalysis = (id, data) => 
-  api.put(`${API_URL}/vulnerabilities/${id}/analysis`, data)
+  api.put(`/vulnerabilities/${id}/analysis`, data)
 
 export const getScanQueue = (status = null) => {
   const params = status ? { status } : {}
-  return api.get(`${API_URL}/queue`, { params })
+  return api.get('/queue', { params })
 }
 
 export const triggerScan = (repoUrl, priority = 0) => 
-  api.post(`${API_URL}/scan`, { repo_url: repoUrl, priority })
+  api.post('/scan', { repo_url: repoUrl, priority })
