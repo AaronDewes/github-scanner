@@ -166,16 +166,29 @@ class GitHubAPIClient:
         return repos
     
     def has_github_actions(self, owner: str, repo: str) -> bool:
-        """Check if repository has GitHub Actions enabled."""
+        """Check if repository has any GitHub Actions runs."""
         try:
-            # Check if .github/workflows directory exists
+            # Check if there have been any workflow runs
             response = self.session.get(
-                f"{self.base_url}/repos/{owner}/{repo}/contents/.github/workflows"
+                f"{self.base_url}/repos/{owner}/{repo}/actions/runs",
+                params={'per_page': 1}
             )
             
-            # If we get 200, directory exists with content
-            # If we get 404, directory doesn't exist
-            return response.status_code == 200
+            if response.status_code == 404:
+                # Actions not enabled or no runs
+                return False
+            
+            if response.status_code == 403:
+                # Rate limit or permissions issue, wait
+                time.sleep(2)
+                return False
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Check if there are any workflow runs
+            total_count = data.get('total_count', 0)
+            return total_count > 0
         
         except Exception as e:
             print(f"Error checking GitHub Actions for {owner}/{repo}: {e}", file=sys.stderr)
@@ -209,16 +222,22 @@ class Scheduler:
             owner = repo_data.get('owner', {}).get('login', '')
             name = repo_data.get('name', '')
             url = repo_data.get('html_url', '')
+            archived = repo_data.get('archived', False)
             
             if not owner or not name or not url:
                 return False
             
+            # Skip archived repositories
+            if archived:
+                print(f"Skipping {owner}/{name} - repository is archived")
+                return False
+            
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                # Check if repo has GitHub Actions
+                # Check if repo has GitHub Actions runs
                 has_actions = self.github_client.has_github_actions(owner, name)
                 
                 if not has_actions:
-                    print(f"Skipping {owner}/{name} - no GitHub Actions")
+                    print(f"Skipping {owner}/{name} - no GitHub Actions runs")
                     return False
                 
                 # Insert or update repository
@@ -276,9 +295,9 @@ class Scheduler:
         """Fetch top repositories and queue them for scanning."""
         print(f"Fetching top {count} repositories...")
         
-        # Search for repositories with many stars
+        # Search for repositories with many stars, excluding archived repos
         repos = self.github_client.search_repositories(
-            query="stars:>100",
+            query="stars:>100 archived:false",
             max_results=count
         )
         
