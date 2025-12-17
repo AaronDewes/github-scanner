@@ -1,0 +1,64 @@
+{{- if .Values.queueWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "github-scanner.fullname" . }}-queue-worker
+  namespace: {{ include "github-scanner.namespace" . }}
+  labels:
+    {{- include "github-scanner.labels" . | nindent 4 }}
+    app.kubernetes.io/component: queue-worker
+spec:
+  replicas: {{ .Values.queueWorker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "github-scanner.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: queue-worker
+  template:
+    metadata:
+      labels:
+        {{- include "github-scanner.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: queue-worker
+    spec:
+      serviceAccountName: {{ include "github-scanner.serviceAccountName" . }}
+      containers:
+      - name: queue-worker
+        image: {{ include "github-scanner.image" (dict "root" . "component" .Values.queueWorker) }}
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.queueWorker.image.pullPolicy }}
+        env:
+        - name: DATABASE_URL
+          {{- if .Values.database.external.existingSecret }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.database.external.existingSecret }}
+              key: {{ .Values.database.external.existingSecretKey }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "github-scanner.fullname" . }}-secrets
+              key: database-url
+          {{- end }}
+        - name: GITHUB_TOKEN
+          {{- if .Values.github.existingSecret }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.github.existingSecret }}
+              key: {{ .Values.github.existingSecretKey }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "github-scanner.fullname" . }}-secrets
+              key: github-token
+          {{- end }}
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: MAX_CONCURRENT_JOBS
+          value: {{ .Values.queueWorker.maxConcurrentJobs | quote }}
+        - name: POLL_INTERVAL
+          value: {{ .Values.queueWorker.pollInterval | quote }}
+        - name: WORKER_IMAGE
+          value: {{ include "github-scanner.image" (dict "root" . "component" .Values.worker) }}
+        resources:
+          {{- toYaml .Values.queueWorker.resources | nindent 10 }}
+{{- end }}

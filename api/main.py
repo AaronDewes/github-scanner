@@ -19,7 +19,6 @@ from models import (
     VulnerabilityStats, PaginatedResponse, HealthCheck
 )
 from database import get_db_connection, get_db_cursor
-from kubernetes_utils import KubernetesJobManager
 
 
 # Initialize FastAPI app
@@ -37,10 +36,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize Kubernetes job manager
-k8s_namespace = os.getenv('KUEUE_NAMESPACE', 'default')
-job_manager = KubernetesJobManager(namespace=k8s_namespace)
 
 
 @app.get("/")
@@ -91,7 +86,7 @@ async def trigger_scan(scan_request: ScanRequest):
     """
     Trigger a repository scan.
     
-    Creates a scan queue entry and submits a Kubernetes job.
+    Creates a scan queue entry. The queue worker will pick it up and create a job.
     """
     try:
         # Parse repository URL
@@ -126,26 +121,9 @@ async def trigger_scan(scan_request: ScanRequest):
                 
                 conn.commit()
         
-        # Create Kubernetes job
-        job_name = job_manager.create_scan_job(
-            repo_url=scan_request.repo_url,
-            repo_owner=owner,
-            repo_name=repo_name,
-            scan_queue_id=scan_queue_id
-        )
-        
-        # Update queue with job name
-        if job_name:
-            with get_db_connection() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "UPDATE scan_queue SET job_name = %s WHERE id = %s",
-                        (job_name, scan_queue_id)
-                    )
-                    conn.commit()
-        
+        # Queue worker will pick up this scan
         return ScanResponse(
-            message="Scan queued successfully",
+            message="Scan queued successfully. The queue worker will process it shortly.",
             repository_id=repository_id,
             scan_queue_id=scan_queue_id
         )

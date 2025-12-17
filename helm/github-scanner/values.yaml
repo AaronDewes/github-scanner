@@ -173,9 +173,31 @@ worker:
     ttlSecondsAfterFinished: 3600
     restartPolicy: Never
 
-# Kueue configuration
-kueue:
+# Queue Worker service configuration
+queueWorker:
   enabled: true
+  replicaCount: 1
+  
+  image:
+    repository: github-scanner-queue-worker
+    pullPolicy: ""  # Uses global.imagePullPolicy if not set
+    tag: ""  # Uses global.imageTag if not set
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  # Queue worker configuration
+  maxConcurrentJobs: 10  # Maximum number of concurrent scan jobs
+  pollInterval: 30       # How often to check the queue (seconds)
+
+# Kueue configuration (DEPRECATED - using queue-worker instead)
+kueue:
+  enabled: false
   
   # ClusterQueue configuration
   clusterQueue:
