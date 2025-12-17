@@ -55,3 +55,8 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Helm
+*.tgz
+*-values.yaml
+my-values.yaml
