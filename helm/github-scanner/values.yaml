@@ -42,7 +42,7 @@ database:
     image:
       registry: docker.io
       repository: postgres
-      tag: "18"
+      tag: "15"
       pullPolicy: IfNotPresent
     persistence:
       enabled: true
