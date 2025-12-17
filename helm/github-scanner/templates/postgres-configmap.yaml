@@ -9,7 +9,5 @@ metadata:
     app.kubernetes.io/component: database
 data:
   01-schema.sql: |
-{{ .Files.Get "../../database/schema.sql" | nindent 4 }}
-  02-init.sql: |
-{{ .Files.Get "../../database/init.sql" | nindent 4 }}
+{{ .Files.Get "files/schema.sql" | indent 4 }}
 {{- end }}
