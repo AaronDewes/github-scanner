@@ -1,4 +1,5 @@
 {{- if and .Values.traefik.enabled .Values.traefik.dashboard.enabled }}
+{{- if .Values.traefik.dashboard.basicAuth.enabled }}
 ---
 apiVersion: v1
 kind: Secret
@@ -23,9 +24,8 @@ metadata:
 spec:
   basicAuth:
     secret: {{ include "github-scanner.fullname" . }}-dashboard-auth
-    {{- if .Values.traefik.dashboard.basicAuth.removeHeader }}
-    removeHeader: true
-    {{- end }}
+    removeHeader: {{ .Values.traefik.dashboard.basicAuth.removeHeader }}
+{{- end }}
 ---
 {{- if .Values.traefik.dashboard.rateLimit.enabled }}
 apiVersion: traefik.io/v1alpha1
@@ -63,14 +63,18 @@ spec:
   routes:
   - match: Host(`{{ .Values.traefik.dashboard.host }}`){{ if .Values.traefik.dashboard.path }} && PathPrefix(`{{ .Values.traefik.dashboard.path }}`){{ end }}
     kind: Rule
+    {{- if or .Values.traefik.dashboard.basicAuth.enabled .Values.traefik.dashboard.rateLimit.enabled .Values.traefik.dashboard.middlewares }}
     middlewares:
+    {{- if .Values.traefik.dashboard.basicAuth.enabled }}
     - name: {{ include "github-scanner.fullname" . }}-dashboard-auth
+    {{- end }}
     {{- if .Values.traefik.dashboard.rateLimit.enabled }}
     - name: {{ include "github-scanner.fullname" . }}-dashboard-ratelimit
     {{- end }}
     {{- with .Values.traefik.dashboard.middlewares }}
     {{- range . }}
     - name: {{ . }}
+    {{- end }}
     {{- end }}
     {{- end }}
     services:

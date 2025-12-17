@@ -99,7 +99,7 @@ Image pull policy
 Image tag
 */}}
 {{- define "github-scanner.imageTag" -}}
-{{- default .Values.global.imageTag .Chart.AppVersion }}
+{{- default .Values.global.imageTag "main" }}
 {{- end }}
 
 {{/*

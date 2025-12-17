@@ -1,4 +1,6 @@
 {{- if and .Values.traefik.enabled .Values.traefik.api.enabled }}
+
+{{- if .Values.traefik.api.basicAuth.enabled }}
 ---
 apiVersion: v1
 kind: Secret
@@ -9,8 +11,6 @@ metadata:
     {{- include "github-scanner.labels" . | nindent 4 }}
 type: Opaque
 data:
-  # Default: admin:admin (change this!)
-  # Generate with: htpasswd -nb username password | base64
   users: {{ .Values.traefik.api.basicAuth.users | b64enc | quote }}
 ---
 apiVersion: traefik.io/v1alpha1
@@ -23,11 +23,11 @@ metadata:
 spec:
   basicAuth:
     secret: {{ include "github-scanner.fullname" . }}-api-auth
-    {{- if .Values.traefik.api.basicAuth.removeHeader }}
-    removeHeader: true
-    {{- end }}
----
+    removeHeader: {{ .Values.traefik.api.basicAuth.removeHeader }}
+{{- end }}
+
 {{- if .Values.traefik.api.rateLimit.enabled }}
+---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -42,8 +42,9 @@ spec:
     burst: {{ .Values.traefik.api.rateLimit.burst }}
     {{- end }}
 {{- end }}
----
+
 {{- if .Values.traefik.api.cors.enabled }}
+---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -55,21 +56,22 @@ spec:
   headers:
     accessControlAllowMethods:
       {{- range .Values.traefik.api.cors.allowMethods }}
-      - {{ . }}
+      - {{ . | quote }}
       {{- end }}
     accessControlAllowOriginList:
       {{- range .Values.traefik.api.cors.allowOrigins }}
-      - {{ . }}
+      - {{ . | quote }}
       {{- end }}
     {{- if .Values.traefik.api.cors.allowHeaders }}
     accessControlAllowHeaders:
       {{- range .Values.traefik.api.cors.allowHeaders }}
-      - {{ . }}
+      - {{ . | quote }}
       {{- end }}
     {{- end }}
     accessControlAllowCredentials: {{ .Values.traefik.api.cors.allowCredentials }}
     accessControlMaxAge: {{ .Values.traefik.api.cors.maxAge }}
 {{- end }}
+
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -89,26 +91,28 @@ spec:
     - {{ . }}
     {{- end }}
   routes:
-  - match: Host(`{{ .Values.traefik.api.host }}`){{ if .Values.traefik.api.path }} && PathPrefix(`{{ .Values.traefik.api.path }}`){{ end }}
-    kind: Rule
-    middlewares:
-    {{- if .Values.traefik.api.cors.enabled }}
-    - name: {{ include "github-scanner.fullname" . }}-api-cors
-    {{- end }}
-    {{- if .Values.traefik.api.basicAuth.enabled }}
-    - name: {{ include "github-scanner.fullname" . }}-api-auth
-    {{- end }}
-    {{- if .Values.traefik.api.rateLimit.enabled }}
-    - name: {{ include "github-scanner.fullname" . }}-api-ratelimit
-    {{- end }}
-    {{- with .Values.traefik.api.middlewares }}
-    {{- range . }}
-    - name: {{ . }}
-    {{- end }}
-    {{- end }}
-    services:
-    - name: {{ include "github-scanner.fullname" . }}-api
-      port: {{ .Values.api.service.port }}
+    - match: Host(`{{ .Values.traefik.api.host }}`){{ if .Values.traefik.api.path }} && PathPrefix(`{{ .Values.traefik.api.path }}`){{ end }}
+      kind: Rule
+      {{- if or .Values.traefik.api.cors.enabled .Values.traefik.api.basicAuth.enabled .Values.traefik.api.rateLimit.enabled .Values.traefik.api.middlewares }}
+      middlewares:
+        {{- if .Values.traefik.api.cors.enabled }}
+        - name: {{ include "github-scanner.fullname" . }}-api-cors
+        {{- end }}
+        {{- if .Values.traefik.api.basicAuth.enabled }}
+        - name: {{ include "github-scanner.fullname" . }}-api-auth
+        {{- end }}
+        {{- if .Values.traefik.api.rateLimit.enabled }}
+        - name: {{ include "github-scanner.fullname" . }}-api-ratelimit
+        {{- end }}
+        {{- with .Values.traefik.api.middlewares }}
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+      services:
+        - name: {{ include "github-scanner.fullname" . }}-api
+          port: {{ .Values.api.service.port }}
   {{- if .Values.traefik.api.tls.enabled }}
   tls:
     {{- if .Values.traefik.api.tls.secretName }}
@@ -122,4 +126,5 @@ spec:
       {{- toYaml . | nindent 6 }}
     {{- end }}
   {{- end }}
+
 {{- end }}
