@@ -297,6 +297,7 @@ class GitHubScanner:
                 'dl',
                 '--org', self.owner,
                 '--repo', self.repo_name,
+                '--default-branch',
                 '--output-dir', output_dir
             ]
             
